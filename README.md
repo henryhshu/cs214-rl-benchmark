@@ -7,21 +7,23 @@ Setting up torchforge environment:
 1. `python -m venv .venv-forge`
 2. `source .venv-forge/bin/activate`
 3. `pip install -e .[forge]`
-4. Deactivate with `deactivate`
+4. Deactivate with `deactivate` as needed
 
 Setting up Ray environment:
 1. `python -m venv .venv-ray`
 2. `source .venv-ray/bin/activate`
 3. `pip install -e .[ray]`
-4. Deactivate with `deactivate`
+4. Deactivate with `deactivate` as needed
 
-Setting up OpenEnv (for Blackjack):
-1. `git clone https://github.com/meta-pytorch/OpenEnv.git ../OpenEnv`
-2. `cd ../OpenEnv`
-3. `pip install -e .`
-4. Switch to new terminal instance
-5. `export OPENENV_PATH="{your path}/OpenEnv"`
-6. `export PYTHONPATH="${OPENENV_PATH}:${PYTHONPATH}"`
-7. `OPENSPIEL_GAME=blackjack python -m envs.openspiel_env.server.app --port 8004`
+Setting up OpenEnv:
+1. Make sure you are in a relevant venv
+2. `pip install -e external/OpenEnv/`
 
-> Note: OpenEnv doesn't put envs submodules under src directory, this might change looking at issues on GitHub. This would effect the need to update system paths.
+Running Blacjack Environment:
+1. Open terminal instance and ensure cwd is this repo
+2. Switch to a relevant venv
+3. `export PYTHONPATH="$(pwd)/external/OpenEnv:$PYTHONPATH"`
+4. `OPENSPIEL_GAME=blackjack python -m envs.openspiel_env.server.app --port 8004`
+5. Kill process as needed
+
+> Note: OpenEnv envs module not added via pip install so workarounds are used.
