@@ -1,3 +1,6 @@
 [submodule "external/OpenEnv"]
 	path = external/OpenEnv
 	url = https://github.com/meta-pytorch/OpenEnv.git
+[submodule "external/torchforge"]
+	path = external/torchforge
+	url = https://github.com/meta-pytorch/torchforge.git

@@ -1,0 +1,14 @@
+name: rl-benchmark
+channels:
+  - conda-forge
+  - nvidia
+  - pytorch
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - torch==2.9.0
+      - -e external/OpenEnv
+      - ray[default]
+      - open_spiel
+      - ipykernel
