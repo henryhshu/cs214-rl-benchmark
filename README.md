@@ -19,6 +19,7 @@
 1. Open terminal instance and ensure cwd is this repo
 2. Switch to a relevant venv
 3. `export PYTHONPATH="$(pwd)/external/OpenEnv:$PYTHONPATH"`
+    - export PYTHONPATH="/Users/henry/cs214-rl-benchmark/external/OpenEnv:/Users/henry/cs214-rl-benchmark/src"
 4. `OPENSPIEL_GAME=blackjack python -m envs.openspiel_env.server.app --port 8004`
 5. Kill process as needed
 
