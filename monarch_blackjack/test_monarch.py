@@ -1,6 +1,6 @@
 import os
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 import asyncio
 import copy
@@ -14,6 +14,16 @@ import torch.optim as optim
 from monarch.actor import Actor, endpoint, this_host
 from monarch.rdma import RDMABuffer
 from torch.distributions import Categorical, kl_divergence
+
+DEVICE_NAME = os.environ.get(
+    "MONARCH_DEVICE",
+    "cuda" if torch.cuda.is_available() else "cpu",
+).lower()
+if DEVICE_NAME == "cuda" and not torch.cuda.is_available():
+    print("⚠️ MONARCH_DEVICE=cuda requested but CUDA is unavailable; falling back to CPU")
+    DEVICE_NAME = "cpu"
+DEVICE = torch.device(DEVICE_NAME)
+USE_RDMA = DEVICE.type == "cuda"
 
 """
 Online reinforcement learning (RL) training loop using the Monarch actor framework.
@@ -164,7 +174,7 @@ class Scorer(Actor):
             nn.Linear(STATE_DIM + 1, 8),
             nn.Tanh(),
             nn.Linear(8, 1),
-        ).to("cuda")
+        ).to(DEVICE)
         self.running = False
 
     async def _score_slice(self, slice: TrajectorySlice) -> None:
@@ -173,8 +183,8 @@ class Scorer(Actor):
         Args:
             slice: The trajectory slice to score
         """
-        s = slice.state.to("cuda").unsqueeze(0).repeat(G, 1)
-        a = slice.actions.to("cuda").float().unsqueeze(-1)
+        s = slice.state.to(DEVICE).unsqueeze(0).repeat(G, 1)
+        a = slice.actions.to(DEVICE).float().unsqueeze(-1)
         rewards = self.net(torch.cat([s, a], dim=-1)).squeeze(-1)
 
         scored = TrajectorySlice(
@@ -229,7 +239,7 @@ class Learner(Actor):
         # Policy network and reference network for KL divergence
         self.model = nn.Sequential(
             nn.Linear(STATE_DIM, 16), nn.Tanh(), nn.Linear(16, ACTION_DIM)
-        ).to("cuda")
+        ).to(DEVICE)
         self.ref_model = copy.deepcopy(self.model)
         for p in self.ref_model.parameters():
             p.requires_grad = False
@@ -243,7 +253,7 @@ class Learner(Actor):
         self.replay_buffer = replay_buffer
         self.batch_size = 2
         self.generators: Optional[Any] = None
-        self._weights_handle: Dict[str, Tuple[torch.Tensor, RDMABuffer]] = {}
+        self._weights_handle: Dict[str, Tuple[torch.Tensor, Optional[RDMABuffer]]] = {}
 
     @endpoint
     async def init_generators(self, generators: Any) -> None:
@@ -261,10 +271,15 @@ class Learner(Actor):
         Returns:
             Dictionary mapping parameter names to RDMA buffers
         """
-        self._weights_handle = {
-            k: (v, RDMABuffer(v.view(torch.uint8).flatten()))
-            for k, v in self.model.state_dict().items()
-        }
+        if USE_RDMA:
+            self._weights_handle = {
+                k: (v, RDMABuffer(v.view(torch.uint8).flatten()))
+                for k, v in self.model.state_dict().items()
+            }
+        else:
+            self._weights_handle = {
+                k: (v, None) for k, v in self.model.state_dict().items()
+            }
         return self._weights_handle
 
     def _compute_advantages(self, rewards: torch.Tensor) -> torch.Tensor:
@@ -362,9 +377,9 @@ class Learner(Actor):
         rewards = torch.cat([s.rewards for s in slices])
 
         # Prepare tensors for update
-        states = raw_states.repeat_interleave(G, 0).to("cuda")
+        states = raw_states.repeat_interleave(G, 0).to(DEVICE)
         actions, old_logps, rewards = [
-            x.to("cuda") for x in (actions, old_logps, rewards)
+            x.to(DEVICE) for x in (actions, old_logps, rewards)
         ]
         # Compute advantages and update policy
         advs = self._compute_advantages(rewards)
@@ -392,7 +407,7 @@ class Generator(Actor):
         """
         self.model = nn.Sequential(
             nn.Linear(STATE_DIM, 16), nn.Tanh(), nn.Linear(16, ACTION_DIM)
-        ).to("cuda")
+        ).to(DEVICE)
         self.weight_buffers = weight_buffers
         self.trajectory_queue = trajectory_queue
         self.state = GeneratorState.READY_TO_GENERATE
@@ -413,7 +428,7 @@ class Generator(Actor):
             )
 
             # Generate actions using current policy
-            x = state.to("cuda").unsqueeze(0).repeat(G, 1)
+            x = state.to(DEVICE).unsqueeze(0).repeat(G, 1)
             dist = Categorical(logits=self.model(x))
             acts = dist.sample()
             logps = dist.log_prob(acts)
@@ -445,19 +460,35 @@ class Generator(Actor):
         async with self.cond:
             # Copy weights from RDMA buffers
             sd = self.model.state_dict()
-            for n, (_, b) in self.weight_buffers.items():
-                await b.read_into(sd[n].view(torch.uint8).flatten())
+            for n, (src, buffer) in self.weight_buffers.items():
+                if buffer is not None:
+                    await buffer.read_into(sd[n].view(torch.uint8).flatten())
+                else:
+                    sd[n].copy_(src.to(sd[n].device))
             self.model.load_state_dict(sd)
             # Update version and state
             self.policy_version = version
             self.state = GeneratorState.READY_TO_GENERATE
             self.cond.notify_all()
 
+
+def _spawn_mesh(num_gpu_workers: int, num_cpu_workers: int = 1):
+    """Create a process mesh with device-aware settings."""
+    if DEVICE.type == "cuda":
+        return this_host().spawn_procs(per_host={"gpus": num_gpu_workers})
+    return this_host().spawn_procs(per_host={"procs": num_cpu_workers})
+
 async def main():
     """Run the distributed reinforcement learning training loop."""
     # Create process meshes for different components
-    learner_mesh = this_host().spawn_procs(per_host={"gpus": 1})
-    gen_mesh = this_host().spawn_procs(per_host={"gpus": 2})
+    learner_mesh = _spawn_mesh(num_gpu_workers=1, num_cpu_workers=1)
+    gen_mesh = _spawn_mesh(num_gpu_workers=2, num_cpu_workers=2)
+
+    print(
+        f"🚀 Running with device={DEVICE.type}, "
+        f"mesh_mode={'gpus' if DEVICE.type == 'cuda' else 'procs'}, "
+        f"rdma_enabled={USE_RDMA}"
+    )
 
     # Spawn actors on the learner mesh
     traj_q = learner_mesh.spawn("traj", TrajectoryQueue)
