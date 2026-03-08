@@ -1,0 +1,78 @@
+# Ray RLlib + OpenEnv BlackJack Training Configuration
+# ====================================================
+#
+# This config drives `train_rllib.py`.  Swap the `algorithm` field to
+# switch between PPO, DQN, or any future registered policy — the rest
+# of the file stays the same.
+#
+# Usage:
+#   python ray_rllib/train_rllib.py --config ray_rllib/rllib_blackjack.yaml
+#
+# Prerequisites:
+#   1. Start the OpenEnv BlackJack server (in a separate terminal):
+#        cd external/OpenEnv
+#        OPENSPIEL_GAME=blackjack python -m envs.openspiel_env.server.app --port 8004
+#
+#   2. Activate the rl-benchmark conda environment:
+#        conda activate rl-benchmark
+
+# ---------------------------------------------------------------
+# Which RL algorithm to use.  Registered names: PPO, DQN
+# To add your own, see rllib_policies.py.
+# ---------------------------------------------------------------
+algorithm: "PPO"
+
+# ---------------------------------------------------------------
+# OpenEnv environment settings
+# ---------------------------------------------------------------
+environment:
+  server_url: "http://localhost:8000"
+  game_name: "blackjack"
+  info_state_size: 111       # Observation vector length
+  max_actions: 2             # HIT=0, STAND=1
+  max_steps_per_episode: 10  # Safety cap
+
+# ---------------------------------------------------------------
+# Training hyper-parameters
+# These are forwarded to the policy's `build_config()` method.
+# ---------------------------------------------------------------
+training:
+  num_iterations: 100        # Number of training iterations
+  lr: 0.0005                 # Learning rate
+  gamma: 0.99                # Discount factor
+  num_rollout_workers: 0     # 0 = local-only (no remote workers)
+  train_batch_size: 512      # Samples per training batch
+  framework: "torch"         # Use PyTorch backend
+
+  # PPO-specific
+  sgd_minibatch_size: 64
+  num_sgd_iter: 10
+  clip_param: 0.2
+  entropy_coeff: 0.01
+  vf_clip_param: 10.0
+
+  # Neural network architecture
+  model:
+    fcnet_hiddens: [128, 128]
+    fcnet_activation: "relu"
+
+# ---------------------------------------------------------------
+# Evaluation (run periodically during training)
+# ---------------------------------------------------------------
+evaluation:
+  eval_interval: 10          # Evaluate every N iterations
+  num_eval_episodes: 50      # Episodes per evaluation round
+
+# ---------------------------------------------------------------
+# Checkpointing
+# ---------------------------------------------------------------
+checkpoint:
+  save_dir: "checkpoints/rllib_blackjack"
+  save_interval: 25          # Save every N iterations
+
+# ---------------------------------------------------------------
+# Ray cluster settings
+# ---------------------------------------------------------------
+ray:
+  num_cpus: 4
+  num_gpus: 0                # Set to 1 if GPU is available

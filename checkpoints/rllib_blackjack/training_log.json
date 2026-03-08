@@ -1,0 +1,735 @@
+{
+  "algorithm": "PPO",
+  "config": {
+    "algorithm": "PPO",
+    "environment": {
+      "server_url": "http://localhost:8000",
+      "game_name": "blackjack",
+      "info_state_size": 111,
+      "max_actions": 2,
+      "max_steps_per_episode": 10
+    },
+    "training": {
+      "lr": 0.0005,
+      "gamma": 0.99,
+      "num_rollout_workers": 0,
+      "train_batch_size": 512,
+      "framework": "torch",
+      "sgd_minibatch_size": 64,
+      "num_sgd_iter": 10,
+      "clip_param": 0.2,
+      "entropy_coeff": 0.01,
+      "vf_clip_param": 10.0,
+      "model": {
+        "fcnet_hiddens": [
+          128,
+          128
+        ],
+        "fcnet_activation": "relu"
+      }
+    },
+    "evaluation": {
+      "eval_interval": 10,
+      "num_eval_episodes": 50
+    },
+    "checkpoint": {
+      "save_dir": "checkpoints/rllib_blackjack",
+      "save_interval": 25
+    },
+    "ray": {
+      "num_cpus": 4,
+      "num_gpus": 0
+    }
+  },
+  "baseline": {
+    "num_episodes": 100,
+    "wins": 30,
+    "losses": 68,
+    "pushes": 2,
+    "win_rate": 0.3
+  },
+  "history": [
+    {
+      "iteration": 1,
+      "episode_reward_mean": -0.43,
+      "episodes_this_iter": 383,
+      "timestamp": 2.244915008544922
+    },
+    {
+      "iteration": 2,
+      "episode_reward_mean": -0.22,
+      "episodes_this_iter": 399,
+      "timestamp": 4.532800912857056
+    },
+    {
+      "iteration": 3,
+      "episode_reward_mean": -0.2,
+      "episodes_this_iter": 407,
+      "timestamp": 6.903169870376587
+    },
+    {
+      "iteration": 4,
+      "episode_reward_mean": -0.18,
+      "episodes_this_iter": 403,
+      "timestamp": 9.250694990158081
+    },
+    {
+      "iteration": 5,
+      "episode_reward_mean": -0.2,
+      "episodes_this_iter": 415,
+      "timestamp": 11.64700198173523
+    },
+    {
+      "iteration": 6,
+      "episode_reward_mean": -0.01,
+      "episodes_this_iter": 418,
+      "timestamp": 13.994479894638062
+    },
+    {
+      "iteration": 7,
+      "episode_reward_mean": -0.14,
+      "episodes_this_iter": 404,
+      "timestamp": 16.362785816192627
+    },
+    {
+      "iteration": 8,
+      "episode_reward_mean": -0.2,
+      "episodes_this_iter": 406,
+      "timestamp": 18.670593738555908
+    },
+    {
+      "iteration": 9,
+      "episode_reward_mean": -0.1,
+      "episodes_this_iter": 409,
+      "timestamp": 21.139960765838623
+    },
+    {
+      "iteration": 10,
+      "episode_reward_mean": -0.04,
+      "episodes_this_iter": 411,
+      "timestamp": 23.511371850967407,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 19,
+        "losses": 27,
+        "pushes": 4,
+        "win_rate": 0.38,
+        "avg_reward": -0.16
+      }
+    },
+    {
+      "iteration": 11,
+      "episode_reward_mean": -0.05,
+      "episodes_this_iter": 403,
+      "timestamp": 26.397674083709717
+    },
+    {
+      "iteration": 12,
+      "episode_reward_mean": -0.08,
+      "episodes_this_iter": 398,
+      "timestamp": 28.868526935577393
+    },
+    {
+      "iteration": 13,
+      "episode_reward_mean": -0.17,
+      "episodes_this_iter": 389,
+      "timestamp": 31.255976915359497
+    },
+    {
+      "iteration": 14,
+      "episode_reward_mean": -0.25,
+      "episodes_this_iter": 381,
+      "timestamp": 33.65970993041992
+    },
+    {
+      "iteration": 15,
+      "episode_reward_mean": -0.28,
+      "episodes_this_iter": 402,
+      "timestamp": 36.72498798370361
+    },
+    {
+      "iteration": 16,
+      "episode_reward_mean": -0.09,
+      "episodes_this_iter": 360,
+      "timestamp": 39.59112882614136
+    },
+    {
+      "iteration": 17,
+      "episode_reward_mean": -0.06,
+      "episodes_this_iter": 380,
+      "timestamp": 42.93357992172241
+    },
+    {
+      "iteration": 18,
+      "episode_reward_mean": -0.21,
+      "episodes_this_iter": 395,
+      "timestamp": 46.27631902694702
+    },
+    {
+      "iteration": 19,
+      "episode_reward_mean": -0.03,
+      "episodes_this_iter": 383,
+      "timestamp": 49.35254192352295
+    },
+    {
+      "iteration": 20,
+      "episode_reward_mean": -0.19,
+      "episodes_this_iter": 386,
+      "timestamp": 52.02129006385803,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 29,
+        "losses": 18,
+        "pushes": 3,
+        "win_rate": 0.58,
+        "avg_reward": 0.22
+      }
+    },
+    {
+      "iteration": 21,
+      "episode_reward_mean": -0.18,
+      "episodes_this_iter": 386,
+      "timestamp": 54.78779077529907
+    },
+    {
+      "iteration": 22,
+      "episode_reward_mean": -0.18,
+      "episodes_this_iter": 367,
+      "timestamp": 57.24501585960388
+    },
+    {
+      "iteration": 23,
+      "episode_reward_mean": -0.18,
+      "episodes_this_iter": 377,
+      "timestamp": 59.66783380508423
+    },
+    {
+      "iteration": 24,
+      "episode_reward_mean": 0.05,
+      "episodes_this_iter": 400,
+      "timestamp": 62.2385048866272
+    },
+    {
+      "iteration": 25,
+      "episode_reward_mean": -0.07,
+      "episodes_this_iter": 384,
+      "timestamp": 64.70144009590149
+    },
+    {
+      "iteration": 26,
+      "episode_reward_mean": -0.06,
+      "episodes_this_iter": 388,
+      "timestamp": 67.13702893257141
+    },
+    {
+      "iteration": 27,
+      "episode_reward_mean": -0.26,
+      "episodes_this_iter": 389,
+      "timestamp": 69.5192699432373
+    },
+    {
+      "iteration": 28,
+      "episode_reward_mean": -0.08,
+      "episodes_this_iter": 394,
+      "timestamp": 71.88025283813477
+    },
+    {
+      "iteration": 29,
+      "episode_reward_mean": -0.26,
+      "episodes_this_iter": 390,
+      "timestamp": 74.37042999267578
+    },
+    {
+      "iteration": 30,
+      "episode_reward_mean": -0.26,
+      "episodes_this_iter": 387,
+      "timestamp": 76.84816193580627,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 14,
+        "losses": 27,
+        "pushes": 9,
+        "win_rate": 0.28,
+        "avg_reward": -0.26
+      }
+    },
+    {
+      "iteration": 31,
+      "episode_reward_mean": -0.04,
+      "episodes_this_iter": 393,
+      "timestamp": 79.62802386283875
+    },
+    {
+      "iteration": 32,
+      "episode_reward_mean": -0.3,
+      "episodes_this_iter": 381,
+      "timestamp": 82.03190588951111
+    },
+    {
+      "iteration": 33,
+      "episode_reward_mean": -0.07,
+      "episodes_this_iter": 372,
+      "timestamp": 84.32697772979736
+    },
+    {
+      "iteration": 34,
+      "episode_reward_mean": -0.04,
+      "episodes_this_iter": 383,
+      "timestamp": 87.43456602096558
+    },
+    {
+      "iteration": 35,
+      "episode_reward_mean": -0.17,
+      "episodes_this_iter": 373,
+      "timestamp": 90.58544588088989
+    },
+    {
+      "iteration": 36,
+      "episode_reward_mean": -0.12,
+      "episodes_this_iter": 385,
+      "timestamp": 93.86712408065796
+    },
+    {
+      "iteration": 37,
+      "episode_reward_mean": -0.01,
+      "episodes_this_iter": 390,
+      "timestamp": 96.93735885620117
+    },
+    {
+      "iteration": 38,
+      "episode_reward_mean": 0.02,
+      "episodes_this_iter": 377,
+      "timestamp": 99.21425890922546
+    },
+    {
+      "iteration": 39,
+      "episode_reward_mean": 0.04,
+      "episodes_this_iter": 381,
+      "timestamp": 101.4964849948883
+    },
+    {
+      "iteration": 40,
+      "episode_reward_mean": -0.22,
+      "episodes_this_iter": 382,
+      "timestamp": 103.7786808013916,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 20,
+        "losses": 26,
+        "pushes": 4,
+        "win_rate": 0.4,
+        "avg_reward": -0.12
+      }
+    },
+    {
+      "iteration": 41,
+      "episode_reward_mean": -0.1,
+      "episodes_this_iter": 375,
+      "timestamp": 106.16562986373901
+    },
+    {
+      "iteration": 42,
+      "episode_reward_mean": -0.02,
+      "episodes_this_iter": 359,
+      "timestamp": 108.43059277534485
+    },
+    {
+      "iteration": 43,
+      "episode_reward_mean": -0.07,
+      "episodes_this_iter": 373,
+      "timestamp": 110.70298981666565
+    },
+    {
+      "iteration": 44,
+      "episode_reward_mean": -0.17,
+      "episodes_this_iter": 361,
+      "timestamp": 112.90422296524048
+    },
+    {
+      "iteration": 45,
+      "episode_reward_mean": -0.02,
+      "episodes_this_iter": 371,
+      "timestamp": 115.1123878955841
+    },
+    {
+      "iteration": 46,
+      "episode_reward_mean": 0.01,
+      "episodes_this_iter": 366,
+      "timestamp": 117.32772588729858
+    },
+    {
+      "iteration": 47,
+      "episode_reward_mean": -0.12,
+      "episodes_this_iter": 354,
+      "timestamp": 119.47120499610901
+    },
+    {
+      "iteration": 48,
+      "episode_reward_mean": -0.11,
+      "episodes_this_iter": 364,
+      "timestamp": 121.69347286224365
+    },
+    {
+      "iteration": 49,
+      "episode_reward_mean": -0.26,
+      "episodes_this_iter": 366,
+      "timestamp": 123.9342668056488
+    },
+    {
+      "iteration": 50,
+      "episode_reward_mean": -0.14,
+      "episodes_this_iter": 381,
+      "timestamp": 126.18245387077332,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 19,
+        "losses": 23,
+        "pushes": 8,
+        "win_rate": 0.38,
+        "avg_reward": -0.08
+      }
+    },
+    {
+      "iteration": 51,
+      "episode_reward_mean": 0.13,
+      "episodes_this_iter": 363,
+      "timestamp": 128.72614192962646
+    },
+    {
+      "iteration": 52,
+      "episode_reward_mean": -0.22,
+      "episodes_this_iter": 378,
+      "timestamp": 131.00714087486267
+    },
+    {
+      "iteration": 53,
+      "episode_reward_mean": 0.05,
+      "episodes_this_iter": 366,
+      "timestamp": 133.30161380767822
+    },
+    {
+      "iteration": 54,
+      "episode_reward_mean": -0.01,
+      "episodes_this_iter": 360,
+      "timestamp": 135.4485011100769
+    },
+    {
+      "iteration": 55,
+      "episode_reward_mean": -0.16,
+      "episodes_this_iter": 375,
+      "timestamp": 137.67043375968933
+    },
+    {
+      "iteration": 56,
+      "episode_reward_mean": -0.16,
+      "episodes_this_iter": 355,
+      "timestamp": 139.80830597877502
+    },
+    {
+      "iteration": 57,
+      "episode_reward_mean": -0.11,
+      "episodes_this_iter": 368,
+      "timestamp": 142.1105408668518
+    },
+    {
+      "iteration": 58,
+      "episode_reward_mean": -0.08,
+      "episodes_this_iter": 371,
+      "timestamp": 144.31992506980896
+    },
+    {
+      "iteration": 59,
+      "episode_reward_mean": -0.09,
+      "episodes_this_iter": 353,
+      "timestamp": 146.46110081672668
+    },
+    {
+      "iteration": 60,
+      "episode_reward_mean": -0.21,
+      "episodes_this_iter": 355,
+      "timestamp": 148.60868000984192,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 22,
+        "losses": 27,
+        "pushes": 1,
+        "win_rate": 0.44,
+        "avg_reward": -0.1
+      }
+    },
+    {
+      "iteration": 61,
+      "episode_reward_mean": -0.01,
+      "episodes_this_iter": 365,
+      "timestamp": 150.99046206474304
+    },
+    {
+      "iteration": 62,
+      "episode_reward_mean": -0.2,
+      "episodes_this_iter": 367,
+      "timestamp": 153.23189687728882
+    },
+    {
+      "iteration": 63,
+      "episode_reward_mean": -0.17,
+      "episodes_this_iter": 364,
+      "timestamp": 155.40214681625366
+    },
+    {
+      "iteration": 64,
+      "episode_reward_mean": 0.11,
+      "episodes_this_iter": 351,
+      "timestamp": 157.67006707191467
+    },
+    {
+      "iteration": 65,
+      "episode_reward_mean": -0.02,
+      "episodes_this_iter": 353,
+      "timestamp": 159.81075286865234
+    },
+    {
+      "iteration": 66,
+      "episode_reward_mean": -0.1,
+      "episodes_this_iter": 336,
+      "timestamp": 161.9423167705536
+    },
+    {
+      "iteration": 67,
+      "episode_reward_mean": -0.18,
+      "episodes_this_iter": 358,
+      "timestamp": 164.08933210372925
+    },
+    {
+      "iteration": 68,
+      "episode_reward_mean": 0.17,
+      "episodes_this_iter": 353,
+      "timestamp": 166.2370707988739
+    },
+    {
+      "iteration": 69,
+      "episode_reward_mean": -0.13,
+      "episodes_this_iter": 354,
+      "timestamp": 168.3851659297943
+    },
+    {
+      "iteration": 70,
+      "episode_reward_mean": -0.05,
+      "episodes_this_iter": 352,
+      "timestamp": 170.50124502182007,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 22,
+        "losses": 22,
+        "pushes": 6,
+        "win_rate": 0.44,
+        "avg_reward": 0.0
+      }
+    },
+    {
+      "iteration": 71,
+      "episode_reward_mean": -0.21,
+      "episodes_this_iter": 361,
+      "timestamp": 172.966570854187
+    },
+    {
+      "iteration": 72,
+      "episode_reward_mean": -0.19,
+      "episodes_this_iter": 349,
+      "timestamp": 175.06919503211975
+    },
+    {
+      "iteration": 73,
+      "episode_reward_mean": -0.17,
+      "episodes_this_iter": 373,
+      "timestamp": 177.32569408416748
+    },
+    {
+      "iteration": 74,
+      "episode_reward_mean": -0.15,
+      "episodes_this_iter": 379,
+      "timestamp": 179.559467792511
+    },
+    {
+      "iteration": 75,
+      "episode_reward_mean": -0.09,
+      "episodes_this_iter": 364,
+      "timestamp": 181.74129009246826
+    },
+    {
+      "iteration": 76,
+      "episode_reward_mean": -0.05,
+      "episodes_this_iter": 374,
+      "timestamp": 184.210688829422
+    },
+    {
+      "iteration": 77,
+      "episode_reward_mean": -0.15,
+      "episodes_this_iter": 362,
+      "timestamp": 186.38561582565308
+    },
+    {
+      "iteration": 78,
+      "episode_reward_mean": -0.08,
+      "episodes_this_iter": 376,
+      "timestamp": 188.62461972236633
+    },
+    {
+      "iteration": 79,
+      "episode_reward_mean": -0.06,
+      "episodes_this_iter": 368,
+      "timestamp": 190.86695790290833
+    },
+    {
+      "iteration": 80,
+      "episode_reward_mean": -0.12,
+      "episodes_this_iter": 366,
+      "timestamp": 193.06954407691956,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 14,
+        "losses": 30,
+        "pushes": 6,
+        "win_rate": 0.28,
+        "avg_reward": -0.32
+      }
+    },
+    {
+      "iteration": 81,
+      "episode_reward_mean": -0.2,
+      "episodes_this_iter": 368,
+      "timestamp": 195.44748973846436
+    },
+    {
+      "iteration": 82,
+      "episode_reward_mean": -0.2,
+      "episodes_this_iter": 349,
+      "timestamp": 197.5624430179596
+    },
+    {
+      "iteration": 83,
+      "episode_reward_mean": 0.01,
+      "episodes_this_iter": 350,
+      "timestamp": 199.67274403572083
+    },
+    {
+      "iteration": 84,
+      "episode_reward_mean": -0.04,
+      "episodes_this_iter": 353,
+      "timestamp": 201.85393476486206
+    },
+    {
+      "iteration": 85,
+      "episode_reward_mean": 0.04,
+      "episodes_this_iter": 344,
+      "timestamp": 204.00170183181763
+    },
+    {
+      "iteration": 86,
+      "episode_reward_mean": -0.29,
+      "episodes_this_iter": 357,
+      "timestamp": 206.17088389396667
+    },
+    {
+      "iteration": 87,
+      "episode_reward_mean": -0.03,
+      "episodes_this_iter": 350,
+      "timestamp": 208.30006194114685
+    },
+    {
+      "iteration": 88,
+      "episode_reward_mean": -0.09,
+      "episodes_this_iter": 341,
+      "timestamp": 210.4950499534607
+    },
+    {
+      "iteration": 89,
+      "episode_reward_mean": -0.06,
+      "episodes_this_iter": 355,
+      "timestamp": 212.64098477363586
+    },
+    {
+      "iteration": 90,
+      "episode_reward_mean": -0.07,
+      "episodes_this_iter": 358,
+      "timestamp": 214.88845896720886,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 18,
+        "losses": 30,
+        "pushes": 2,
+        "win_rate": 0.36,
+        "avg_reward": -0.24
+      }
+    },
+    {
+      "iteration": 91,
+      "episode_reward_mean": -0.08,
+      "episodes_this_iter": 345,
+      "timestamp": 217.17886400222778
+    },
+    {
+      "iteration": 92,
+      "episode_reward_mean": -0.07,
+      "episodes_this_iter": 341,
+      "timestamp": 219.27159476280212
+    },
+    {
+      "iteration": 93,
+      "episode_reward_mean": -0.16,
+      "episodes_this_iter": 341,
+      "timestamp": 221.38089990615845
+    },
+    {
+      "iteration": 94,
+      "episode_reward_mean": -0.24,
+      "episodes_this_iter": 367,
+      "timestamp": 223.56372594833374
+    },
+    {
+      "iteration": 95,
+      "episode_reward_mean": -0.11,
+      "episodes_this_iter": 347,
+      "timestamp": 225.72302174568176
+    },
+    {
+      "iteration": 96,
+      "episode_reward_mean": -0.13,
+      "episodes_this_iter": 363,
+      "timestamp": 227.885990858078
+    },
+    {
+      "iteration": 97,
+      "episode_reward_mean": -0.11,
+      "episodes_this_iter": 353,
+      "timestamp": 230.0189299583435
+    },
+    {
+      "iteration": 98,
+      "episode_reward_mean": -0.15,
+      "episodes_this_iter": 360,
+      "timestamp": 232.20313096046448
+    },
+    {
+      "iteration": 99,
+      "episode_reward_mean": -0.23,
+      "episodes_this_iter": 357,
+      "timestamp": 234.4692039489746
+    },
+    {
+      "iteration": 100,
+      "episode_reward_mean": 0.15,
+      "episodes_this_iter": 357,
+      "timestamp": 236.6496069431305,
+      "eval": {
+        "num_episodes": 50,
+        "wins": 22,
+        "losses": 25,
+        "pushes": 3,
+        "win_rate": 0.44,
+        "avg_reward": -0.06
+      }
+    }
+  ],
+  "best_win_rate": 0.58,
+  "elapsed_seconds": 236.84264183044434
+}
