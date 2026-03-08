@@ -19,7 +19,8 @@
 1. Open terminal instance and ensure cwd is this repo
 2. Switch to a relevant venv
 3. `export PYTHONPATH="$(pwd)/external/OpenEnv:$PYTHONPATH"`
-4. `OPENSPIEL_GAME=blackjack python -m envs.openspiel_env.server.app --port 8004`
+4. `OPENSPIEL_GAME=blackjack uvicorn envs.openspiel_env.server.app:app`
+    1. add multiple uvicorn workers using `--workers` option
 5. Kill process as needed
 
 > Note: OpenEnv envs module not added via pip install so workarounds are used.

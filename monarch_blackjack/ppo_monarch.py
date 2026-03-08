@@ -104,11 +104,26 @@ class RolloutWorker(Actor):
         masked_logits = logits.masked_fill(~mask, -1e9)
         return Categorical(logits=masked_logits)
 
+    async def _close_env_client(self, env: Any) -> None:
+        """Best-effort close that supports both sync and async OpenEnv clients."""
+        close_fn = getattr(env, "close", None) or getattr(env, "disconnect", None)
+        if close_fn is None:
+            return
+
+        try:
+            maybe_result = close_fn()
+            if asyncio.iscoroutine(maybe_result):
+                await maybe_result
+        except Exception:
+            # We are tearing down after rollout; close failures should not mask training errors.
+            pass
+
     @endpoint
     async def collect(self, model_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         self.model.load_state_dict(model_state)
         max_retries = 3
         for attempt in range(max_retries):
+            env = None
             try:
                 obs_buf: List[torch.Tensor] = []
                 actions_buf: List[torch.Tensor] = []
@@ -121,56 +136,56 @@ class RolloutWorker(Actor):
 
                 running_return = 0.0
 
-                with self._OpenSpielEnv(base_url=self.base_url) as env:
-                    result = env.reset()
-                    obs, legal_actions = _extract_obs_legal(result)
+                env = self._OpenSpielEnv(base_url=self.base_url)
+                result = env.reset()
+                obs, legal_actions = _extract_obs_legal(result)
 
-                    for _ in range(self.horizon):
-                        obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
-
-                        with torch.no_grad():
-                            logits, value = self.model(obs_t.unsqueeze(0))
-                            logits = logits.squeeze(0)
-                            value = value.squeeze(0).squeeze(-1)
-                            dist = self._masked_dist(logits, legal_actions)
-                            action = dist.sample()
-                            log_prob = dist.log_prob(action)
-
-                        next_result = env.step(
-                            self._OpenSpielAction(action_id=int(action.item()), game_name=self.game_name)
-                        )
-
-                        reward = float(next_result.reward)
-                        done = bool(next_result.done)
-                        next_obs, next_legal = _extract_obs_legal(next_result)
-
-                        action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
-                        action_mask[legal_actions] = 1.0
-
-                        obs_buf.append(obs_t.cpu())
-                        actions_buf.append(action.cpu())
-                        logprob_buf.append(log_prob.cpu())
-                        rewards_buf.append(reward)
-                        values_buf.append(value.cpu())
-                        dones_buf.append(float(done))
-                        masks_buf.append(action_mask)
-
-                        running_return += reward
-                        if done:
-                            episode_returns.append(running_return)
-                            running_return = 0.0
-                            reset_result = env.reset()
-                            obs, legal_actions = _extract_obs_legal(reset_result)
-                        else:
-                            obs, legal_actions = next_obs, next_legal
+                for _ in range(self.horizon):
+                    obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
 
                     with torch.no_grad():
-                        next_value = (
-                            self.model(torch.tensor(obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))[1]
-                            .squeeze(0)
-                            .squeeze(-1)
-                            .cpu()
-                        )
+                        logits, value = self.model(obs_t.unsqueeze(0))
+                        logits = logits.squeeze(0)
+                        value = value.squeeze(0).squeeze(-1)
+                        dist = self._masked_dist(logits, legal_actions)
+                        action = dist.sample()
+                        log_prob = dist.log_prob(action)
+
+                    next_result = env.step(
+                        self._OpenSpielAction(action_id=int(action.item()), game_name=self.game_name)
+                    )
+
+                    reward = float(next_result.reward)
+                    done = bool(next_result.done)
+                    next_obs, next_legal = _extract_obs_legal(next_result)
+
+                    action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
+                    action_mask[legal_actions] = 1.0
+
+                    obs_buf.append(obs_t.cpu())
+                    actions_buf.append(action.cpu())
+                    logprob_buf.append(log_prob.cpu())
+                    rewards_buf.append(reward)
+                    values_buf.append(value.cpu())
+                    dones_buf.append(float(done))
+                    masks_buf.append(action_mask)
+
+                    running_return += reward
+                    if done:
+                        episode_returns.append(running_return)
+                        running_return = 0.0
+                        reset_result = env.reset()
+                        obs, legal_actions = _extract_obs_legal(reset_result)
+                    else:
+                        obs, legal_actions = next_obs, next_legal
+
+                with torch.no_grad():
+                    next_value = (
+                        self.model(torch.tensor(obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))[1]
+                        .squeeze(0)
+                        .squeeze(-1)
+                        .cpu()
+                    )
 
                 values_plus_bootstrap = torch.cat([torch.stack(values_buf), next_value.view(1)], dim=0)
 
@@ -188,10 +203,20 @@ class RolloutWorker(Actor):
                     ).mean(),
                 }
             except Exception as exc:
-                is_conn_closed = "ConnectionClosed" in type(exc).__name__ or "ConnectionClosed" in str(exc)
-                if not is_conn_closed or attempt == max_retries - 1:
+                exc_text = f"{type(exc).__name__}: {exc}"
+                is_retryable = (
+                    "ConnectionClosed" in exc_text
+                    or "CAPACITY_REACHED" in exc_text
+                    or "Server at capacity" in exc_text
+                )
+                if not is_retryable or attempt == max_retries - 1:
                     raise
-                await asyncio.sleep(0.2 * (attempt + 1))
+                await asyncio.sleep(0.3 * (attempt + 1))
+            finally:
+                if env is not None:
+                    await self._close_env_client(env)
+                    # Give the server a short window to unregister the session.
+                    await asyncio.sleep(0.05)
 
         raise RuntimeError("RolloutWorker.collect failed after retries")
 
@@ -341,6 +366,69 @@ def _spawn_mesh(num_gpu_workers: int, num_cpu_workers: int = 1):
     return this_host().spawn_procs(per_host={"procs": num_cpu_workers})
 
 
+def evaluate_policy_winrate(
+    model_state: Dict[str, torch.Tensor],
+    state_dim: int,
+    hidden_dim: int,
+    action_dim: int,
+    server_url: str,
+    game_name: str,
+    num_games: int = 20,
+) -> Dict[str, float]:
+    """Evaluate trained policy over full episodes and return win-rate metrics."""
+    _configure_openenv_imports()
+    from envs.openspiel_env import OpenSpielAction, OpenSpielEnv
+
+    eval_model = ActorCritic(state_dim, hidden_dim, action_dim).to(DEVICE)
+    eval_model.load_state_dict(model_state)
+    eval_model.eval()
+
+    wins = 0
+    losses = 0
+    draws = 0
+
+    with OpenSpielEnv(base_url=server_url) as env:
+        for _ in range(num_games):
+            result = env.reset()
+            obs, legal_actions = _extract_obs_legal(result)
+            done = bool(result.done)
+            final_reward = float(result.reward) if result.reward is not None else 0.0
+
+            while not done:
+                obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
+                with torch.no_grad():
+                    logits, _ = eval_model(obs_t.unsqueeze(0))
+                    logits = logits.squeeze(0)
+
+                # Greedy action for deterministic policy evaluation.
+                legal_idx = torch.tensor(legal_actions, dtype=torch.long, device=DEVICE)
+                legal_logits = logits[legal_idx]
+                best_i = int(torch.argmax(legal_logits).item())
+                action_id = int(legal_actions[best_i])
+
+                step_result = env.step(OpenSpielAction(action_id=action_id, game_name=game_name))
+                done = bool(step_result.done)
+                final_reward = float(step_result.reward) if step_result.reward is not None else final_reward
+
+                if not done:
+                    obs, legal_actions = _extract_obs_legal(step_result)
+
+            if final_reward > 0:
+                wins += 1
+            elif final_reward < 0:
+                losses += 1
+            else:
+                draws += 1
+
+    games_played = max(1, num_games)
+    return {
+        "wins": float(wins),
+        "losses": float(losses),
+        "draws": float(draws),
+        "win_rate": wins / games_played,
+    }
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Monarch PPO with clipped objective")
     parser.add_argument("--server-url", type=str, default="http://localhost:8000")
@@ -358,6 +446,7 @@ async def main() -> None:
     parser.add_argument("--ppo-epochs", type=int, default=4)
     parser.add_argument("--minibatch-size", type=int, default=256)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument("--eval-games", type=int, default=20)
     args = parser.parse_args()
 
     _configure_openenv_imports()
@@ -425,6 +514,24 @@ async def main() -> None:
             f"v_loss={metrics['value_loss']:.4f} "
             f"entropy={metrics['entropy']:.4f}"
         )
+
+    trained_state = await learner.get_model_state.call_one()
+    eval_metrics = evaluate_policy_winrate(
+        model_state=trained_state,
+        state_dim=state_dim,
+        hidden_dim=args.hidden_dim,
+        action_dim=action_dim,
+        server_url=args.server_url,
+        game_name=args.game_name,
+        num_games=max(1, args.eval_games),
+    )
+    print(
+        f"Evaluation over {int(args.eval_games)} games: "
+        f"wins={int(eval_metrics['wins'])}, "
+        f"losses={int(eval_metrics['losses'])}, "
+        f"draws={int(eval_metrics['draws'])}, "
+        f"win_rate={eval_metrics['win_rate']:.2%}"
+    )
 
 
 if __name__ == "__main__":
