@@ -48,6 +48,7 @@ def compute_gae(
     return advantages, returns
 
 # Monarch specific configuration
+os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 DEVICE_NAME = os.environ.get(
     "MONARCH_DEVICE",
@@ -104,7 +105,8 @@ class RolloutWorker(Actor):
         self.game_name = game_name
         self.local_env = local_env
 
-        self.model = ActorCritic(state_dim, hidden_dim, action_dim).to(DEVICE)
+        self.device = torch.device("cpu")
+        self.model = ActorCritic(state_dim, hidden_dim, action_dim).to(self.device)
         self.model.eval()
 
         if local_env:
@@ -144,12 +146,12 @@ class RolloutWorker(Actor):
         obs, legal_actions = _extract_obs_legal(result)
 
         for _ in range(self.horizon):
-            obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
+            obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
             with torch.no_grad():
                 logits, value = self.model(obs_t.unsqueeze(0))
                 logits = logits.squeeze(0)
                 value = value.squeeze(0).squeeze(-1)
-                mask = torch.zeros(self.action_dim, dtype=torch.bool, device=DEVICE)
+                mask = torch.zeros(self.action_dim, dtype=torch.bool, device=self.device)
                 mask[legal_actions] = True
                 dist = Categorical(logits=logits.masked_fill(~mask, -1e9))
                 action = dist.sample()
@@ -181,7 +183,7 @@ class RolloutWorker(Actor):
 
         with torch.no_grad():
             next_value = (
-                self.model(torch.tensor(obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))[1]
+                self.model(torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0))[1]
                 .squeeze(0).squeeze(-1).cpu()
             )
 
@@ -225,7 +227,7 @@ class RolloutWorker(Actor):
                 obs, legal_actions = _extract_obs_legal(result)
 
                 for _ in range(self.horizon):
-                    obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
+                    obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
 
                     with torch.no_grad():
                         logits, value = self.model(obs_t.unsqueeze(0))
@@ -265,7 +267,7 @@ class RolloutWorker(Actor):
 
                 with torch.no_grad():
                     next_value = (
-                        self.model(torch.tensor(obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))[1]
+                        self.model(torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0))[1]
                         .squeeze(0)
                         .squeeze(-1)
                         .cpu()
