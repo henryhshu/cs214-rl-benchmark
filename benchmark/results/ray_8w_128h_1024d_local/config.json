@@ -1,0 +1,10 @@
+{
+  "framework": "ray",
+  "workers": 8,
+  "horizon": 128,
+  "hidden_dim": 1024,
+  "env_mode": "local",
+  "iterations": 30,
+  "eval_games": 50,
+  "server_port": 8000
+}

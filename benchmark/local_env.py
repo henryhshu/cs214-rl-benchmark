@@ -54,8 +54,24 @@ class LocalEnv:
     def __init__(self, game_name: str = "blackjack"):
         self._game = pyspiel.load_game(game_name)
         self._state = None
-        # Cache tensor size for the info-state (determined on first reset)
         self._info_state_size: Optional[int] = None
+        # Probe once at construction time to avoid repeated C++ stderr noise per step.
+        self._use_information_state = self._probe_information_state()
+
+    def _probe_information_state(self) -> bool:
+        """Return True if this game supports information_state_tensor."""
+        state = self._game.new_initial_state()
+        # Advance past any chance nodes to reach a player decision point.
+        while not state.is_terminal() and state.is_chance_node():
+            action = state.chance_outcomes()[0][0]
+            state.apply_action(action)
+        if state.is_terminal():
+            return False
+        try:
+            state.information_state_tensor(0)
+            return True
+        except pyspiel.SpielError:
+            return False
 
     # ------------------------------------------------------------------
     # Public API (mirrors OpenEnv client)
@@ -89,17 +105,15 @@ class LocalEnv:
 
     def _info_state(self) -> List[float]:
         if self._state.is_terminal():
-            # Return a zero vector of the same size as a normal info state
             if self._info_state_size is None:
                 return [0.0]
             return [0.0] * self._info_state_size
 
         player = 0
-        # Prefer information_state_tensor (accounts for hidden info like opponent hand)
-        # Fall back to observation_tensor if not available for this game.
-        try:
+
+        if self._use_information_state:
             tensor = self._state.information_state_tensor(player)
-        except pyspiel.SpielError:
+        else:
             tensor = self._state.observation_tensor(player)
 
         if self._info_state_size is None:

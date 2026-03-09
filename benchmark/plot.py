@@ -5,7 +5,8 @@ Usage:
     python benchmark/plot.py                         # uses benchmark/results/
     python benchmark/plot.py --results-dir path/to/results
 
-Outputs six PNG figures to benchmark/results/figures/.
+Figures are written to benchmark/results/figures/<env_mode>_<hidden_dim>d/
+so that each (env_mode, hidden_dim) combination gets its own clean set.
 """
 import argparse
 import json
@@ -14,7 +15,6 @@ from pathlib import Path
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 import numpy as np
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def load_sysmon(exp_dir: Path) -> list[dict]:
 
 
 def load_all(results_dir: Path) -> dict:
-    """Return nested dict: data[framework][workers][horizon] = {metrics, sysmon, config}"""
+    """Return nested dict: data[env_mode][hidden_dim][framework][workers][horizon]"""
     data = {}
     for exp_dir in results_dir.iterdir():
         if not exp_dir.is_dir() or exp_dir.name == "figures":
@@ -83,25 +83,30 @@ def load_all(results_dir: Path) -> dict:
         if not cfg_path.exists():
             continue
         cfg = json.loads(cfg_path.read_text())
-        fw = cfg["framework"]
-        w = cfg["workers"]
-        h = cfg["horizon"]
-        data.setdefault(fw, {}).setdefault(w, {})[h] = {
+        fw  = cfg["framework"]
+        w   = cfg["workers"]
+        h   = cfg["horizon"]
+        hd  = cfg.get("hidden_dim", 64)
+        em  = cfg.get("env_mode", "websocket")
+        (data
+            .setdefault(em, {})
+            .setdefault(hd, {})
+            .setdefault(fw, {})
+            .setdefault(w, {})[h]
+        ) = {
             "metrics": load_metrics(exp_dir),
-            "sysmon": load_sysmon(exp_dir),
-            "config": cfg,
+            "sysmon":  load_sysmon(exp_dir),
+            "config":  cfg,
         }
     return data
 
 
 def _mean_field(records: list[dict], field: str, skip_first: int = 2) -> float | None:
-    """Mean of a field across records, skipping first N warm-up iterations."""
     vals = [r[field] for r in records[skip_first:] if field in r and r[field] is not None]
     return float(np.mean(vals)) if vals else None
 
 
 def _final_field(records: list[dict], field: str) -> float | None:
-    """Value from the last record that has this field."""
     for r in reversed(records):
         if field in r and r[field] is not None:
             return float(r[field])
@@ -110,7 +115,7 @@ def _final_field(records: list[dict], field: str) -> float | None:
 
 def _sysmon_peak(records: list[dict], field: str) -> float | None:
     vals = [r[field] for r in records if field in r]
-    return float(np.percentile(vals, 95)) if vals else None  # 95th pct avoids transients
+    return float(np.percentile(vals, 95)) if vals else None
 
 
 def _sysmon_mean(records: list[dict], field: str) -> float | None:
@@ -122,9 +127,13 @@ def _sysmon_mean(records: list[dict], field: str) -> float | None:
 # Figure 1: Throughput scaling (steps/sec vs workers)
 # ---------------------------------------------------------------------------
 
-def fig_throughput(data: dict, out_dir: Path) -> None:
+def fig_throughput(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=False)
-    fig.suptitle("Figure 1: Throughput Scaling (steps/sec vs. worker count)", y=1.02)
+    fig.suptitle(
+        f"Throughput Scaling — {env_mode}, hidden={hidden_dim} "
+        f"(steps/sec vs. worker count)",
+        y=1.02,
+    )
 
     for j, horizon in enumerate(HORIZONS):
         ax = axes[j]
@@ -159,13 +168,16 @@ def fig_throughput(data: dict, out_dir: Path) -> None:
 # Figure 2: Iteration time breakdown (rollout vs update)
 # ---------------------------------------------------------------------------
 
-def fig_time_breakdown(data: dict, out_dir: Path) -> None:
+def fig_time_breakdown(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle("Figure 2: Iteration Time Breakdown (rollout vs. update)", y=1.02)
+    fig.suptitle(
+        f"Iteration Time Breakdown — {env_mode}, hidden={hidden_dim} "
+        f"(rollout vs. update)",
+        y=1.02,
+    )
 
     for i, fw in enumerate(FRAMEWORKS):
         ax = axes[i]
-        # Group bars by worker count; within each group, one bar per horizon
         n_horizons = len(HORIZONS)
         x = np.arange(len(WORKERS))
         width = 0.25
@@ -184,11 +196,11 @@ def fig_time_breakdown(data: dict, out_dir: Path) -> None:
 
             offset = (j - n_horizons / 2 + 0.5) * width
             color_rollout = plt.cm.Blues(0.4 + 0.3 * j / n_horizons)
-            color_update = plt.cm.Oranges(0.4 + 0.3 * j / n_horizons)
-            bars_r = ax.bar(x + offset, rollouts, width, color=color_rollout,
-                            label=f"Rollout h={horizon}")
-            bars_u = ax.bar(x + offset, updates, width, bottom=rollouts,
-                            color=color_update, label=f"Update h={horizon}")
+            color_update  = plt.cm.Oranges(0.4 + 0.3 * j / n_horizons)
+            ax.bar(x + offset, rollouts, width, color=color_rollout,
+                   label=f"Rollout h={horizon}")
+            ax.bar(x + offset, updates, width, bottom=rollouts,
+                   color=color_update, label=f"Update h={horizon}")
 
         ax.set_title(fw.capitalize())
         ax.set_xlabel("Workers")
@@ -205,20 +217,24 @@ def fig_time_breakdown(data: dict, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 3: Resource utilization (CPU, RAM, GPU util, VRAM) at horizon=256
+# Figure 3: Resource utilization at horizon=256
 # ---------------------------------------------------------------------------
 
-def fig_resources(data: dict, out_dir: Path) -> None:
+def fig_resources(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
     HORIZON = 256
     metrics_cfg = [
-        ("cpu_mean_pct",    "CPU Utilization (%)",   _sysmon_mean),
-        ("ram_used_mb",     "RAM Used (MB)",          _sysmon_peak),
-        ("gpu0_util_pct",   "GPU 0 Utilization (%)", _sysmon_mean),
-        ("gpu0_vram_used_mb", "GPU 0 VRAM Used (MB)", _sysmon_peak),
+        ("cpu_mean_pct",      "CPU Utilization (%)",    _sysmon_mean),
+        ("ram_used_mb",       "RAM Used (MB)",           _sysmon_peak),
+        ("gpu0_util_pct",     "GPU 0 Utilization (%)",  _sysmon_mean),
+        ("gpu0_vram_used_mb", "GPU 0 VRAM Used (MB)",   _sysmon_peak),
     ]
 
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
-    fig.suptitle(f"Figure 3: Resource Utilization vs. Workers (horizon={HORIZON})", y=1.02)
+    fig.suptitle(
+        f"Resource Utilization — {env_mode}, hidden={hidden_dim} "
+        f"(horizon={HORIZON})",
+        y=1.02,
+    )
     axes = axes.flatten()
 
     for k, (field, ylabel, agg_fn) in enumerate(metrics_cfg):
@@ -253,28 +269,29 @@ def fig_resources(data: dict, out_dir: Path) -> None:
 # Figure 4: Communication overhead at horizon=256
 # ---------------------------------------------------------------------------
 
-def fig_communication(data: dict, out_dir: Path) -> None:
+def fig_communication(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
     HORIZON = 256
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    fig.suptitle(f"Figure 4: Communication Overhead vs. Workers (horizon={HORIZON})", y=1.02)
+    fig.suptitle(
+        f"Communication Overhead — {env_mode}, hidden={hidden_dim} "
+        f"(horizon={HORIZON})",
+        y=1.02,
+    )
 
     for fw in FRAMEWORKS:
         style = FW_STYLE[fw]
-        xs_mb, ys_mb = [], []
-        xs_tp, ys_tp = [], []
+        xs_mb, ys_mb, xs_tp, ys_tp = [], [], [], []
         for w in WORKERS:
             entry = data.get(fw, {}).get(w, {}).get(HORIZON)
             if not entry:
                 continue
             metrics = entry["metrics"]
-            total_mb = _mean_field(metrics, "total_transfer_mb")
+            total_mb   = _mean_field(metrics, "total_transfer_mb")
             throughput = _mean_field(metrics, "throughput_mb_s")
             if total_mb is not None:
-                xs_mb.append(w)
-                ys_mb.append(total_mb)
+                xs_mb.append(w); ys_mb.append(total_mb)
             if throughput is not None:
-                xs_tp.append(w)
-                ys_tp.append(throughput)
+                xs_tp.append(w); ys_tp.append(throughput)
 
         if xs_mb:
             axes[0].plot(xs_mb, ys_mb, color=style["color"], linestyle=style["linestyle"],
@@ -284,18 +301,12 @@ def fig_communication(data: dict, out_dir: Path) -> None:
                          marker=style["marker"], label=style["label"])
 
     axes[0].set_title("Data transferred per iteration")
-    axes[0].set_xlabel("Workers")
-    axes[0].set_ylabel("MB / iteration")
-    axes[0].set_xticks(WORKERS)
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
+    axes[0].set_xlabel("Workers"); axes[0].set_ylabel("MB / iteration")
+    axes[0].set_xticks(WORKERS); axes[0].legend(); axes[0].grid(True, alpha=0.3)
 
     axes[1].set_title("Effective data throughput")
-    axes[1].set_xlabel("Workers")
-    axes[1].set_ylabel("MB / second")
-    axes[1].set_xticks(WORKERS)
-    axes[1].legend()
-    axes[1].grid(True, alpha=0.3)
+    axes[1].set_xlabel("Workers"); axes[1].set_ylabel("MB / second")
+    axes[1].set_xticks(WORKERS); axes[1].legend(); axes[1].grid(True, alpha=0.3)
 
     fig.tight_layout()
     fig.savefig(out_dir / "fig4_communication.png", bbox_inches="tight")
@@ -304,17 +315,19 @@ def fig_communication(data: dict, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Figure 5: Learning quality — return curves + final win rate
+# Figure 5: Learning quality
 # ---------------------------------------------------------------------------
 
-def fig_learning(data: dict, out_dir: Path) -> None:
+def fig_learning(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
     HORIZON = 256
-    SELECTED_WORKERS = [1, 4]  # most informative pair
+    SELECTED_WORKERS = [1, 4]
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-    fig.suptitle("Figure 5: Learning Quality", y=1.02)
+    fig.suptitle(
+        f"Learning Quality — {env_mode}, hidden={hidden_dim}",
+        y=1.02,
+    )
 
-    # Left: return curves
     ax = axes[0]
     colors = {"ray": ["#aec7e8", "#1f77b4"], "monarch": ["#ffbb78", "#ff7f0e"]}
     for fw in FRAMEWORKS:
@@ -323,22 +336,18 @@ def fig_learning(data: dict, out_dir: Path) -> None:
             if not entry:
                 continue
             records = entry["metrics"]
-            iters = [r["iteration"] for r in records if "mean_worker_return" in r]
+            iters   = [r["iteration"] for r in records if "mean_worker_return" in r]
             returns = [r["mean_worker_return"] for r in records if "mean_worker_return" in r]
             if iters:
-                ax.plot(iters, returns,
-                        color=colors[fw][ci],
+                ax.plot(iters, returns, color=colors[fw][ci],
                         label=f"{FW_STYLE[fw]['label']} {w}w",
                         linewidth=1.5 if ci == 1 else 1.0)
 
     ax.set_title(f"Mean Return over Iterations (horizon={HORIZON})")
-    ax.set_xlabel("Iteration")
-    ax.set_ylabel("Mean Episode Return")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Iteration"); ax.set_ylabel("Mean Episode Return")
+    ax.legend(); ax.grid(True, alpha=0.3)
     ax.axhline(0, color="k", linewidth=0.5, linestyle=":")
 
-    # Right: final win rate vs workers
     ax = axes[1]
     for fw in FRAMEWORKS:
         xs, ys = [], []
@@ -346,23 +355,18 @@ def fig_learning(data: dict, out_dir: Path) -> None:
             entry = data.get(fw, {}).get(w, {}).get(HORIZON)
             if not entry:
                 continue
-            # win_rate stored in the "final" record
             wr = _final_field(entry["metrics"], "win_rate")
             if wr is not None:
-                xs.append(w)
-                ys.append(wr * 100)
+                xs.append(w); ys.append(wr * 100)
         if xs:
             style = FW_STYLE[fw]
             ax.plot(xs, ys, color=style["color"], linestyle=style["linestyle"],
                     marker=style["marker"], label=style["label"])
 
     ax.set_title(f"Final Win Rate vs. Workers (horizon={HORIZON})")
-    ax.set_xlabel("Workers")
-    ax.set_ylabel("Win Rate (%)")
-    ax.set_xticks(WORKERS)
-    ax.set_ylim(0, 60)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Workers"); ax.set_ylabel("Win Rate (%)")
+    ax.set_xticks(WORKERS); ax.set_ylim(0, 70)
+    ax.legend(); ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
     fig.savefig(out_dir / "fig5_learning.png", bbox_inches="tight")
@@ -374,15 +378,18 @@ def fig_learning(data: dict, out_dir: Path) -> None:
 # Figure 6: Horizon effect (fixed workers=4)
 # ---------------------------------------------------------------------------
 
-def fig_horizon_effect(data: dict, out_dir: Path) -> None:
+def fig_horizon_effect(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
     WORKERS_FIXED = 4
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    fig.suptitle(f"Figure 6: Horizon Effect (workers={WORKERS_FIXED})", y=1.02)
+    fig.suptitle(
+        f"Horizon Effect — {env_mode}, hidden={hidden_dim} "
+        f"(workers={WORKERS_FIXED})",
+        y=1.02,
+    )
 
     for fw in FRAMEWORKS:
         style = FW_STYLE[fw]
-        xs_tp, ys_tp = [], []
-        xs_up, ys_up = [], []
+        xs_tp, ys_tp, xs_up, ys_up = [], [], [], []
         for h in HORIZONS:
             entry = data.get(fw, {}).get(WORKERS_FIXED, {}).get(h)
             if not entry:
@@ -390,11 +397,9 @@ def fig_horizon_effect(data: dict, out_dir: Path) -> None:
             tp = _mean_field(entry["metrics"], "steps_per_sec")
             ut = _mean_field(entry["metrics"], "update_time_s")
             if tp is not None:
-                xs_tp.append(h)
-                ys_tp.append(tp)
+                xs_tp.append(h); ys_tp.append(tp)
             if ut is not None:
-                xs_up.append(h)
-                ys_up.append(ut * 1000)  # ms
+                xs_up.append(h); ys_up.append(ut * 1000)
 
         if xs_tp:
             axes[0].plot(xs_tp, ys_tp, color=style["color"], linestyle=style["linestyle"],
@@ -404,23 +409,62 @@ def fig_horizon_effect(data: dict, out_dir: Path) -> None:
                          marker=style["marker"], label=style["label"])
 
     axes[0].set_title("Throughput vs. Horizon")
-    axes[0].set_xlabel("Horizon (steps/rollout)")
-    axes[0].set_ylabel("Steps / second")
-    axes[0].set_xticks(HORIZONS)
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
+    axes[0].set_xlabel("Horizon (steps/rollout)"); axes[0].set_ylabel("Steps / second")
+    axes[0].set_xticks(HORIZONS); axes[0].legend(); axes[0].grid(True, alpha=0.3)
 
     axes[1].set_title("Update Time vs. Horizon")
-    axes[1].set_xlabel("Horizon (steps/rollout)")
-    axes[1].set_ylabel("Update time (ms)")
-    axes[1].set_xticks(HORIZONS)
-    axes[1].legend()
-    axes[1].grid(True, alpha=0.3)
+    axes[1].set_xlabel("Horizon (steps/rollout)"); axes[1].set_ylabel("Update time (ms)")
+    axes[1].set_xticks(HORIZONS); axes[1].legend(); axes[1].grid(True, alpha=0.3)
 
     fig.tight_layout()
     fig.savefig(out_dir / "fig6_horizon_effect.png", bbox_inches="tight")
     plt.close(fig)
     print("  Saved fig6_horizon_effect.png")
+
+
+# ---------------------------------------------------------------------------
+# Figure 7: Small vs large model throughput comparison (local mode only)
+# ---------------------------------------------------------------------------
+
+def fig_model_size_comparison(all_data: dict, out_dir: Path) -> None:
+    """Compare throughput at hidden=64 vs hidden=1024 in local mode."""
+    local_data = all_data.get("local")
+    if not local_data:
+        return
+    dims = sorted(local_data.keys())
+    if len(dims) < 2:
+        return
+
+    HORIZON = 256
+    fig, axes = plt.subplots(1, len(dims), figsize=(6 * len(dims), 4), sharey=False)
+    if len(dims) == 1:
+        axes = [axes]
+    fig.suptitle("Model Size Effect on Throughput (local env, horizon=256)", y=1.02)
+
+    for ax, hd in zip(axes, dims):
+        fw_data = local_data[hd]
+        for fw in FRAMEWORKS:
+            xs, ys = [], []
+            for w in WORKERS:
+                entry = fw_data.get(fw, {}).get(w, {}).get(HORIZON)
+                if entry:
+                    v = _mean_field(entry["metrics"], "steps_per_sec")
+                    if v is not None:
+                        xs.append(w); ys.append(v)
+            if xs:
+                style = FW_STYLE[fw]
+                ax.plot(xs, ys, color=style["color"], linestyle=style["linestyle"],
+                        marker=style["marker"], label=style["label"])
+
+        ax.set_title(f"hidden_dim = {hd}")
+        ax.set_xlabel("Workers"); ax.set_ylabel("Steps / second")
+        ax.set_xticks(WORKERS); ax.legend(); ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    path = out_dir / "fig7_model_size.png"
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved fig7_model_size.png")
 
 
 # ---------------------------------------------------------------------------
@@ -438,33 +482,41 @@ def main() -> None:
         print(f"Results directory not found: {results_dir}")
         return
 
-    out_dir = results_dir / "figures"
-    out_dir.mkdir(exist_ok=True)
+    base_out = results_dir / "figures"
+    base_out.mkdir(exist_ok=True)
 
     print(f"Loading results from {results_dir} ...")
-    data = load_all(results_dir)
+    all_data = load_all(results_dir)
 
-    fws = sorted(data.keys())
-    total_exps = sum(len(ws) * len(hs) for ws in data.values() for hs in ws.values()
-                     for _ in [hs])
-    # simpler count:
-    total_exps = sum(
+    total = sum(
         1
-        for fw in data
-        for w in data[fw]
-        for h in data[fw][w]
+        for em in all_data
+        for hd in all_data[em]
+        for fw in all_data[em][hd]
+        for w  in all_data[em][hd][fw]
+        for h  in all_data[em][hd][fw][w]
     )
-    print(f"Found {total_exps} experiments across frameworks: {fws}")
-    print(f"Generating figures → {out_dir}\n")
+    print(f"Found {total} experiments across: {list(all_data.keys())}\n")
 
-    fig_throughput(data, out_dir)
-    fig_time_breakdown(data, out_dir)
-    fig_resources(data, out_dir)
-    fig_communication(data, out_dir)
-    fig_learning(data, out_dir)
-    fig_horizon_effect(data, out_dir)
+    # One figure set per (env_mode, hidden_dim) slice
+    for env_mode, hd_data in sorted(all_data.items()):
+        for hidden_dim, fw_data in sorted(hd_data.items()):
+            slice_name = f"{env_mode}_{hidden_dim}d"
+            out_dir = base_out / slice_name
+            out_dir.mkdir(exist_ok=True)
+            print(f"--- {slice_name} ---")
+            fig_throughput(fw_data, out_dir, env_mode, hidden_dim)
+            fig_time_breakdown(fw_data, out_dir, env_mode, hidden_dim)
+            fig_resources(fw_data, out_dir, env_mode, hidden_dim)
+            fig_communication(fw_data, out_dir, env_mode, hidden_dim)
+            fig_learning(fw_data, out_dir, env_mode, hidden_dim)
+            fig_horizon_effect(fw_data, out_dir, env_mode, hidden_dim)
 
-    print(f"\nAll figures saved to {out_dir}")
+    # Cross-slice comparison (model size)
+    print("--- cross-slice ---")
+    fig_model_size_comparison(all_data, base_out)
+
+    print(f"\nAll figures saved under {base_out}")
 
 
 if __name__ == "__main__":
