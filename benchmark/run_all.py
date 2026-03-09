@@ -43,11 +43,13 @@ def _venv_python() -> str:
     return str(venv) if venv.exists() else sys.executable
 
 
-def _subprocess_env() -> dict:
-    """Return os.environ with PYTHONPATH pointing at OpenEnv root."""
+def _subprocess_env(device: str = "auto") -> dict:
+    """Return os.environ with PYTHONPATH and optional device override."""
     env = os.environ.copy()
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f"{OPENENV_ROOT}:{existing}" if existing else str(OPENENV_ROOT)
+    if device == "cpu":
+        env["CUDA_VISIBLE_DEVICES"] = ""
     return env
 
 
@@ -120,13 +122,13 @@ def _build_cmd(framework: str, workers: int, horizon: int, hidden_dim: int,
 
 def run_experiment(framework: str, workers: int, horizon: int, hidden_dim: int,
                    env_mode: str, iterations: int, eval_games: int,
-                   exp_dir: Path) -> int:
+                   exp_dir: Path, device: str = "auto") -> int:
     metrics_file = exp_dir / "metrics.jsonl"
     sysmon_file = exp_dir / "sysmon.jsonl"
 
     cmd = _build_cmd(framework, workers, horizon, hidden_dim, env_mode,
                      iterations, eval_games, metrics_file)
-    env = _subprocess_env()
+    env = _subprocess_env(device=device)
 
     sysmon = start_sysmon(sysmon_file)
     try:
@@ -143,6 +145,9 @@ def run_experiment(framework: str, workers: int, horizon: int, hidden_dim: int,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Ray vs Monarch benchmark matrix")
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Name for this run (default: timestamp). Results go to "
+                             "benchmark/results/<run-name>/")
     parser.add_argument("--frameworks", nargs="+", default=["ray", "monarch"],
                         choices=["ray", "monarch"])
     parser.add_argument("--workers", nargs="+", type=int, default=[1, 2, 4, 8])
@@ -155,11 +160,17 @@ def main() -> None:
     parser.add_argument("--iterations", type=int, default=30,
                         help="Training iterations per experiment")
     parser.add_argument("--eval-games", type=int, default=50)
+    parser.add_argument("--device", default="auto", choices=["auto", "cpu"],
+                        help="'cpu' forces CPU-only (sets CUDA_VISIBLE_DEVICES=\"\"). "
+                             "'auto' uses GPU if available.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print experiment list without running")
     args = parser.parse_args()
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    run_name = args.run_name or time.strftime("%Y-%m-%d_%H%M%S")
+    results_dir = RESULTS_DIR / run_name
+    results_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Run: {run_name}  →  {results_dir}  (device={args.device})", flush=True)
 
     experiments = [
         (fw, w, h, hd, em)
@@ -187,7 +198,7 @@ def main() -> None:
     try:
         for i, (framework, workers, horizon, hidden_dim, env_mode) in enumerate(experiments, 1):
             exp_name = f"{framework}_{workers}w_{horizon}h_{hidden_dim}d_{env_mode}"
-            exp_dir = RESULTS_DIR / exp_name
+            exp_dir = results_dir / exp_name
             exp_dir.mkdir(exist_ok=True)
 
             config = {
@@ -196,9 +207,11 @@ def main() -> None:
                 "horizon": horizon,
                 "hidden_dim": hidden_dim,
                 "env_mode": env_mode,
+                "device": args.device,
                 "iterations": args.iterations,
                 "eval_games": args.eval_games,
                 "server_port": SERVER_PORT,
+                "run_name": run_name,
             }
             (exp_dir / "config.json").write_text(json.dumps(config, indent=2))
 
@@ -207,6 +220,7 @@ def main() -> None:
             rc = run_experiment(
                 framework, workers, horizon, hidden_dim, env_mode,
                 args.iterations, args.eval_games, exp_dir,
+                device=args.device,
             )
             elapsed = time.time() - t0
 
@@ -220,12 +234,11 @@ def main() -> None:
             server.terminate()
             server.wait(timeout=10)
 
-    # Write manifest
-    manifest_path = RESULTS_DIR / "manifest.json"
+    manifest_path = results_dir / "manifest.json"
     manifest_path.write_text(json.dumps(results_summary, indent=2))
-    print(f"\nDone. Results in {RESULTS_DIR}")
+    print(f"\nDone. Results in {results_dir}")
     print(f"Manifest: {manifest_path}")
-    print(f"\nNext: python benchmark/plot.py")
+    print(f"\nNext: python benchmark/plot.py --runs {run_name}")
 
 
 if __name__ == "__main__":

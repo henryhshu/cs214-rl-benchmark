@@ -437,7 +437,10 @@ class PPOLearner(Actor):
 
 def _spawn_mesh(num_gpu_workers: int, num_cpu_workers: int = 1):
     if DEVICE.type == "cuda":
-        return this_host().spawn_procs(per_host={"gpus": num_gpu_workers})
+        # Using "workers" (not "gpus"/"gpu") triggers Monarch's round-robin GPU
+        # assignment: worker N gets CUDA_VISIBLE_DEVICES = N % device_count().
+        # This lets multiple workers share each GPU, matching Ray's behaviour.
+        return this_host().spawn_procs(per_host={"workers": num_gpu_workers})
     return this_host().spawn_procs(per_host={"procs": num_cpu_workers})
 
 
