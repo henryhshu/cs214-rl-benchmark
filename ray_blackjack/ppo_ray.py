@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -150,25 +151,40 @@ class RolloutWorker:
 		self._env = self._OpenSpielEnv(base_url=self.base_url)
 		await self._env.__aenter__()
 
-	async def collect(self, model_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-		self.model.load_state_dict(model_state)
-		if self.local_env:
-			return self._collect_local()
-		# Retry only for unexpected connection drops; capacity errors should never
-		# occur since each worker holds one persistent connection.
-		max_retries = 3
-		for attempt in range(max_retries):
-			try:
-				await self._ensure_env()
-				return await self._collect_async()
-			except Exception as exc:
-				# Drop the broken connection so _ensure_env reconnects next attempt.
-				self._env = None
-				if attempt == max_retries - 1:
-					raise
-				await asyncio.sleep(0.5 * (attempt + 1))
+	async def collect(self, model_state: Dict[str, torch.Tensor], dispatch_time: float = 0.0) -> Dict[str, torch.Tensor]:
+		worker_start_time = time.time()
 
-		raise RuntimeError("RolloutWorker.collect failed after retries")
+		t_load = time.perf_counter()
+		self.model.load_state_dict(model_state)
+		load_state_time = time.perf_counter() - t_load
+
+		t_rollout = time.perf_counter()
+		if self.local_env:
+			result = self._collect_local()
+		else:
+			# Retry only for unexpected connection drops; capacity errors should never
+			# occur since each worker holds one persistent connection.
+			max_retries = 3
+			for attempt in range(max_retries):
+				try:
+					await self._ensure_env()
+					result = await self._collect_async()
+					break
+				except Exception as exc:
+					# Drop the broken connection so _ensure_env reconnects next attempt.
+					self._env = None
+					if attempt == max_retries - 1:
+						raise
+					await asyncio.sleep(0.5 * (attempt + 1))
+			else:
+				raise RuntimeError("RolloutWorker.collect failed after retries")
+		worker_rollout_time = time.perf_counter() - t_rollout
+
+		result["_scheduling_latency_s"] = torch.tensor(worker_start_time - dispatch_time)
+		result["_worker_rollout_time_s"] = torch.tensor(worker_rollout_time)
+		result["_load_state_time_s"] = torch.tensor(load_state_time)
+		result["_worker_start_time"] = torch.tensor(worker_start_time)
+		return result
 
 	def _collect_local(self) -> Dict[str, torch.Tensor]:
 		"""CPU-compute-bound rollout using in-process OpenSpiel (no network I/O)."""
@@ -643,12 +659,33 @@ def main() -> None:
 			iter_start = time.perf_counter()
 
 			model_state = ray.get(learner.get_model_state.remote())
+
+			t_ser = time.perf_counter()
 			model_state_ref = ray.put(model_state)
+			model_serialize_time = time.perf_counter() - t_ser
 
 			t0 = time.perf_counter()
-			rollout_refs = [worker.collect.remote(model_state_ref) for worker in workers]
+			dispatch_time = time.time()
+			rollout_refs = [
+				worker.collect.remote(model_state_ref, dispatch_time)
+				for worker in workers
+			]
 			rollouts = ray.get(rollout_refs)
 			rollout_time = time.perf_counter() - t0
+
+			# Extract per-worker timing fields
+			timing_keys = [
+				"_scheduling_latency_s", "_worker_rollout_time_s",
+				"_load_state_time_s", "_worker_start_time",
+			]
+			worker_timings: Dict[str, List[float]] = {k: [] for k in timing_keys}
+			for rollout in rollouts:
+				for k in timing_keys:
+					worker_timings[k].append(float(rollout.pop(k)))
+
+			sched_lats = worker_timings["_scheduling_latency_s"]
+			worker_rollout_times = worker_timings["_worker_rollout_time_s"]
+			load_state_times = worker_timings["_load_state_time_s"]
 
 			t1 = time.perf_counter()
 			metrics = ray.get(
@@ -665,6 +702,8 @@ def main() -> None:
 			model_bytes = _tensor_bytes(model_state)
 			rollout_bytes = sum(_tensor_bytes(r) for r in rollouts)
 			total_mb = (model_bytes + rollout_bytes) / 1e6
+
+			serialization_overhead_s = rollout_time - max(worker_rollout_times) if worker_rollout_times else 0.0
 
 			print(
 				f"iter={iteration:03d} "
@@ -685,6 +724,17 @@ def main() -> None:
 				"rollout_bytes": rollout_bytes,
 				"total_transfer_mb": total_mb,
 				"throughput_mb_s": total_mb / max(iter_time, 1e-9),
+				"model_serialize_time_s": model_serialize_time,
+				"scheduling_latency_mean_s": statistics.mean(sched_lats) if sched_lats else 0.0,
+				"scheduling_latency_max_s": max(sched_lats) if sched_lats else 0.0,
+				"scheduling_latency_min_s": min(sched_lats) if sched_lats else 0.0,
+				"scheduling_latency_std_s": statistics.stdev(sched_lats) if len(sched_lats) > 1 else 0.0,
+				"worker_rollout_time_mean_s": statistics.mean(worker_rollout_times) if worker_rollout_times else 0.0,
+				"worker_rollout_time_max_s": max(worker_rollout_times) if worker_rollout_times else 0.0,
+				"worker_rollout_time_min_s": min(worker_rollout_times) if worker_rollout_times else 0.0,
+				"worker_rollout_time_std_s": statistics.stdev(worker_rollout_times) if len(worker_rollout_times) > 1 else 0.0,
+				"load_state_time_mean_s": statistics.mean(load_state_times) if load_state_times else 0.0,
+				"serialization_overhead_s": serialization_overhead_s,
 				**metrics,
 			})
 

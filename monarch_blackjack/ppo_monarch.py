@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import statistics
 import sys
 import time
 from pathlib import Path
@@ -202,100 +203,115 @@ class RolloutWorker(Actor):
         }
 
     @endpoint
-    async def collect(self, model_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    async def collect(self, model_state: Dict[str, torch.Tensor], dispatch_time: float = 0.0) -> Dict[str, torch.Tensor]:
+        worker_start_time = time.time()
+
+        t_load = time.perf_counter()
         self.model.load_state_dict(model_state)
+        load_state_time = time.perf_counter() - t_load
+
+        t_rollout = time.perf_counter()
         if self.local_env:
-            return self._collect_local()
-        # Retry only for unexpected connection drops; capacity errors should never
-        # occur since each worker holds one persistent connection.
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                await self._ensure_env()
-                obs_buf: List[torch.Tensor] = []
-                actions_buf: List[torch.Tensor] = []
-                logprob_buf: List[torch.Tensor] = []
-                rewards_buf: List[float] = []
-                values_buf: List[torch.Tensor] = []
-                dones_buf: List[float] = []
-                masks_buf: List[torch.Tensor] = []
-                episode_returns: List[float] = []
-                running_return = 0.0
+            result = self._collect_local()
+        else:
+            # Retry only for unexpected connection drops; capacity errors should never
+            # occur since each worker holds one persistent connection.
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await self._ensure_env()
+                    obs_buf: List[torch.Tensor] = []
+                    actions_buf: List[torch.Tensor] = []
+                    logprob_buf: List[torch.Tensor] = []
+                    rewards_buf: List[float] = []
+                    values_buf: List[torch.Tensor] = []
+                    dones_buf: List[float] = []
+                    masks_buf: List[torch.Tensor] = []
+                    episode_returns: List[float] = []
+                    running_return = 0.0
 
-                env = self._env
-                result = await env.reset()
-                obs, legal_actions = _extract_obs_legal(result)
+                    env = self._env
+                    result_env = await env.reset()
+                    obs, legal_actions = _extract_obs_legal(result_env)
 
-                for _ in range(self.horizon):
-                    obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
+                    for _ in range(self.horizon):
+                        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device)
+
+                        with torch.no_grad():
+                            logits, value = self.model(obs_t.unsqueeze(0))
+                            logits = logits.squeeze(0)
+                            value = value.squeeze(0).squeeze(-1)
+                            dist = self._masked_dist(logits, legal_actions)
+                            action = dist.sample()
+                            log_prob = dist.log_prob(action)
+
+                        next_result = await env.step(
+                            self._OpenSpielAction(action_id=int(action.item()), game_name=self.game_name)
+                        )
+
+                        reward = float(next_result.reward)
+                        done = bool(next_result.done)
+                        next_obs, next_legal = _extract_obs_legal(next_result)
+
+                        action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
+                        action_mask[legal_actions] = 1.0
+
+                        obs_buf.append(obs_t.cpu())
+                        actions_buf.append(action.cpu())
+                        logprob_buf.append(log_prob.cpu())
+                        rewards_buf.append(reward)
+                        values_buf.append(value.cpu())
+                        dones_buf.append(float(done))
+                        masks_buf.append(action_mask)
+
+                        running_return += reward
+                        if done:
+                            episode_returns.append(running_return)
+                            running_return = 0.0
+                            reset_result = await env.reset()
+                            obs, legal_actions = _extract_obs_legal(reset_result)
+                        else:
+                            obs, legal_actions = next_obs, next_legal
 
                     with torch.no_grad():
-                        logits, value = self.model(obs_t.unsqueeze(0))
-                        logits = logits.squeeze(0)
-                        value = value.squeeze(0).squeeze(-1)
-                        dist = self._masked_dist(logits, legal_actions)
-                        action = dist.sample()
-                        log_prob = dist.log_prob(action)
+                        next_value = (
+                            self.model(torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0))[1]
+                            .squeeze(0)
+                            .squeeze(-1)
+                            .cpu()
+                        )
 
-                    next_result = await env.step(
-                        self._OpenSpielAction(action_id=int(action.item()), game_name=self.game_name)
-                    )
+                    values_plus_bootstrap = torch.cat([torch.stack(values_buf), next_value.view(1)], dim=0)
 
-                    reward = float(next_result.reward)
-                    done = bool(next_result.done)
-                    next_obs, next_legal = _extract_obs_legal(next_result)
+                    result = {
+                        "obs": torch.stack(obs_buf),
+                        "actions": torch.stack(actions_buf).long(),
+                        "old_log_probs": torch.stack(logprob_buf),
+                        "rewards": torch.tensor(rewards_buf, dtype=torch.float32),
+                        "values": values_plus_bootstrap,
+                        "dones": torch.tensor(dones_buf, dtype=torch.float32),
+                        "action_masks": torch.stack(masks_buf),
+                        "mean_episode_return": torch.tensor(
+                            episode_returns if episode_returns else [running_return],
+                            dtype=torch.float32,
+                        ).mean(),
+                    }
+                    break
+                except Exception:
+                    # Drop the broken connection so _ensure_env reconnects next attempt.
+                    self._env = None
+                    if attempt == max_retries - 1:
+                        raise
+                    await asyncio.sleep(0.5 * (attempt + 1))
+            else:
+                raise RuntimeError("RolloutWorker.collect failed after retries")
+        worker_rollout_time = time.perf_counter() - t_rollout
 
-                    action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
-                    action_mask[legal_actions] = 1.0
-
-                    obs_buf.append(obs_t.cpu())
-                    actions_buf.append(action.cpu())
-                    logprob_buf.append(log_prob.cpu())
-                    rewards_buf.append(reward)
-                    values_buf.append(value.cpu())
-                    dones_buf.append(float(done))
-                    masks_buf.append(action_mask)
-
-                    running_return += reward
-                    if done:
-                        episode_returns.append(running_return)
-                        running_return = 0.0
-                        reset_result = await env.reset()
-                        obs, legal_actions = _extract_obs_legal(reset_result)
-                    else:
-                        obs, legal_actions = next_obs, next_legal
-
-                with torch.no_grad():
-                    next_value = (
-                        self.model(torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0))[1]
-                        .squeeze(0)
-                        .squeeze(-1)
-                        .cpu()
-                    )
-
-                values_plus_bootstrap = torch.cat([torch.stack(values_buf), next_value.view(1)], dim=0)
-
-                return {
-                    "obs": torch.stack(obs_buf),
-                    "actions": torch.stack(actions_buf).long(),
-                    "old_log_probs": torch.stack(logprob_buf),
-                    "rewards": torch.tensor(rewards_buf, dtype=torch.float32),
-                    "values": values_plus_bootstrap,
-                    "dones": torch.tensor(dones_buf, dtype=torch.float32),
-                    "action_masks": torch.stack(masks_buf),
-                    "mean_episode_return": torch.tensor(
-                        episode_returns if episode_returns else [running_return],
-                        dtype=torch.float32,
-                    ).mean(),
-                }
-            except Exception:
-                # Drop the broken connection so _ensure_env reconnects next attempt.
-                self._env = None
-                if attempt == max_retries - 1:
-                    raise
-                await asyncio.sleep(0.5 * (attempt + 1))
-
-        raise RuntimeError("RolloutWorker.collect failed after retries")
+        result["_scheduling_latency_s"] = torch.tensor(worker_start_time - dispatch_time)
+        result["_worker_rollout_time_s"] = torch.tensor(worker_rollout_time)
+        result["_load_state_time_s"] = torch.tensor(load_state_time)
+        result["_worker_start_time"] = torch.tensor(worker_start_time)
+        return result
 
 
 class PPOLearner(Actor):
@@ -609,10 +625,30 @@ async def main() -> None:
 
         model_state = await learner.get_model_state.call_one()
 
+        # Time model state clone as serialization proxy (Monarch serializes internally)
+        t_ser = time.perf_counter()
+        _ = {k: v.clone() for k, v in model_state.items()}
+        model_serialize_time = time.perf_counter() - t_ser
+
         t0 = time.perf_counter()
-        rollout_mesh = await workers.collect.call(model_state)
+        dispatch_time = time.time()
+        rollout_mesh = await workers.collect.call(model_state, dispatch_time)
         rollouts = list(rollout_mesh.values())
         rollout_time = time.perf_counter() - t0
+
+        # Extract per-worker timing fields
+        timing_keys = [
+            "_scheduling_latency_s", "_worker_rollout_time_s",
+            "_load_state_time_s", "_worker_start_time",
+        ]
+        worker_timings: Dict[str, List[float]] = {k: [] for k in timing_keys}
+        for rollout in rollouts:
+            for k in timing_keys:
+                worker_timings[k].append(float(rollout.pop(k)))
+
+        sched_lats = worker_timings["_scheduling_latency_s"]
+        worker_rollout_times = worker_timings["_worker_rollout_time_s"]
+        load_state_times = worker_timings["_load_state_time_s"]
 
         t1 = time.perf_counter()
         metrics = await learner.update.call_one(
@@ -627,6 +663,8 @@ async def main() -> None:
         model_bytes = _tensor_bytes(model_state)
         rollout_bytes = sum(_tensor_bytes(r) for r in rollouts)
         total_mb = (model_bytes + rollout_bytes) / 1e6
+
+        serialization_overhead_s = rollout_time - max(worker_rollout_times) if worker_rollout_times else 0.0
 
         print(
             f"iter={iteration:03d} "
@@ -647,6 +685,17 @@ async def main() -> None:
             "rollout_bytes": rollout_bytes,
             "total_transfer_mb": total_mb,
             "throughput_mb_s": total_mb / max(iter_time, 1e-9),
+            "model_serialize_time_s": model_serialize_time,
+            "scheduling_latency_mean_s": statistics.mean(sched_lats) if sched_lats else 0.0,
+            "scheduling_latency_max_s": max(sched_lats) if sched_lats else 0.0,
+            "scheduling_latency_min_s": min(sched_lats) if sched_lats else 0.0,
+            "scheduling_latency_std_s": statistics.stdev(sched_lats) if len(sched_lats) > 1 else 0.0,
+            "worker_rollout_time_mean_s": statistics.mean(worker_rollout_times) if worker_rollout_times else 0.0,
+            "worker_rollout_time_max_s": max(worker_rollout_times) if worker_rollout_times else 0.0,
+            "worker_rollout_time_min_s": min(worker_rollout_times) if worker_rollout_times else 0.0,
+            "worker_rollout_time_std_s": statistics.stdev(worker_rollout_times) if len(worker_rollout_times) > 1 else 0.0,
+            "load_state_time_mean_s": statistics.mean(load_state_times) if load_state_times else 0.0,
+            "serialization_overhead_s": serialization_overhead_s,
             **metrics,
         })
 

@@ -468,6 +468,123 @@ def fig_model_size_comparison(all_data: dict, out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Figure 8: Scheduling latency vs workers (from in-loop metrics)
+# ---------------------------------------------------------------------------
+
+def fig_scheduling_latency(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
+    # Guard: only generate if new instrumentation fields exist
+    has_data = False
+    for fw in FRAMEWORKS:
+        for w in WORKERS:
+            for h in HORIZONS:
+                entry = data.get(fw, {}).get(w, {}).get(h)
+                if entry and _mean_field(entry["metrics"], "scheduling_latency_mean_s") is not None:
+                    has_data = True
+                    break
+    if not has_data:
+        return
+
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=False)
+    fig.suptitle(
+        f"Scheduling Latency — {env_mode}, hidden={hidden_dim} "
+        f"(mean dispatch-to-start per worker)",
+        y=1.02,
+    )
+
+    for j, horizon in enumerate(HORIZONS):
+        ax = axes[j]
+        for fw in FRAMEWORKS:
+            xs, ys_mean, ys_max = [], [], []
+            for w in WORKERS:
+                entry = data.get(fw, {}).get(w, {}).get(horizon)
+                if entry:
+                    m = _mean_field(entry["metrics"], "scheduling_latency_mean_s")
+                    mx = _mean_field(entry["metrics"], "scheduling_latency_max_s")
+                    if m is not None:
+                        xs.append(w)
+                        ys_mean.append(m * 1000)  # convert to ms
+                        ys_max.append((mx or m) * 1000)
+            if xs:
+                style = FW_STYLE[fw]
+                ax.plot(xs, ys_mean, color=style["color"], linestyle=style["linestyle"],
+                        marker=style["marker"], label=f"{style['label']} mean")
+                ax.plot(xs, ys_max, color=style["color"], linestyle=":",
+                        marker=style["marker"], label=f"{style['label']} max", alpha=0.5)
+
+        ax.set_title(f"Horizon = {horizon}")
+        ax.set_xlabel("Workers")
+        ax.set_ylabel("Scheduling Latency (ms)")
+        ax.set_xticks(WORKERS)
+        ax.legend(fontsize=7)
+        ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    fig.savefig(out_dir / "fig8_scheduling_latency.png", bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved fig8_scheduling_latency.png")
+
+
+# ---------------------------------------------------------------------------
+# Figure 9: Serialization overhead breakdown (from in-loop metrics)
+# ---------------------------------------------------------------------------
+
+def fig_serialization_overhead(data: dict, out_dir: Path, env_mode: str, hidden_dim: int) -> None:
+    HORIZON = 256
+    # Guard: only generate if new instrumentation fields exist
+    has_data = False
+    for fw in FRAMEWORKS:
+        for w in WORKERS:
+            entry = data.get(fw, {}).get(w, {}).get(HORIZON)
+            if entry and _mean_field(entry["metrics"], "model_serialize_time_s") is not None:
+                has_data = True
+                break
+    if not has_data:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    fig.suptitle(
+        f"Serialization Overhead — {env_mode}, hidden={hidden_dim} "
+        f"(horizon={HORIZON})",
+        y=1.02,
+    )
+
+    x = np.arange(len(WORKERS))
+    width = 0.35
+
+    for i, fw in enumerate(FRAMEWORKS):
+        ser_times, overhead_times = [], []
+        for w in WORKERS:
+            entry = data.get(fw, {}).get(w, {}).get(HORIZON)
+            if entry:
+                st = _mean_field(entry["metrics"], "model_serialize_time_s") or 0
+                oh = _mean_field(entry["metrics"], "serialization_overhead_s") or 0
+            else:
+                st = oh = 0
+            ser_times.append(st * 1000)
+            overhead_times.append(oh * 1000)
+
+        style = FW_STYLE[fw]
+        offset = (i - 0.5) * width
+        ax.bar(x + offset, ser_times, width, color=style["color"],
+               label=f"{style['label']} model serialize", alpha=0.8)
+        ax.bar(x + offset, overhead_times, width, bottom=ser_times,
+               color=style["color"], label=f"{style['label']} scheduling overhead",
+               alpha=0.4, hatch="//")
+
+    ax.set_xlabel("Workers")
+    ax.set_ylabel("Time (ms)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(WORKERS)
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    fig.tight_layout()
+    fig.savefig(out_dir / "fig9_serialization_overhead.png", bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved fig9_serialization_overhead.png")
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -511,6 +628,8 @@ def main() -> None:
             fig_communication(fw_data, out_dir, env_mode, hidden_dim)
             fig_learning(fw_data, out_dir, env_mode, hidden_dim)
             fig_horizon_effect(fw_data, out_dir, env_mode, hidden_dim)
+            fig_scheduling_latency(fw_data, out_dir, env_mode, hidden_dim)
+            fig_serialization_overhead(fw_data, out_dir, env_mode, hidden_dim)
 
     # Cross-slice comparison (model size)
     print("--- cross-slice ---")
