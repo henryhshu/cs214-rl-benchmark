@@ -1,0 +1,23 @@
+[project]
+name = "rl-benchmark"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "torch==2.9.0",
+    "openenv-core",
+    "ray[default]",
+    "open-spiel",
+    "torchmonarch==0.2.0",
+    "ipykernel",
+    "matplotlib",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv.sources]
+openenv-core = { path = "external/OpenEnv", editable = true }

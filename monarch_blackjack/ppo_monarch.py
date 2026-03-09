@@ -1,7 +1,10 @@
 import argparse
 import asyncio
+import json
 import os
+import random
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 import torch
@@ -57,6 +60,17 @@ if DEVICE_NAME == "cuda" and not torch.cuda.is_available():
 DEVICE = torch.device(DEVICE_NAME)
 
 # Ensure OpenEnv is on the Python path for worker processes
+def _write_metrics(path: str | None, record: dict) -> None:
+    if not path:
+        return
+    with open(path, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def _tensor_bytes(d: Dict[str, Any]) -> int:
+    return sum(v.element_size() * v.numel() for v in d.values() if hasattr(v, "numel"))
+
+
 def _configure_openenv_imports() -> None:
     project_root = Path(__file__).resolve().parent.parent
     openenv_path = project_root / "external" / "OpenEnv"
@@ -121,7 +135,7 @@ class RolloutWorker(Actor):
     @endpoint
     async def collect(self, model_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         self.model.load_state_dict(model_state)
-        max_retries = 3
+        max_retries = 12
         for attempt in range(max_retries):
             env = None
             try:
@@ -136,56 +150,60 @@ class RolloutWorker(Actor):
 
                 running_return = 0.0
 
-                env = self._OpenSpielEnv(base_url=self.base_url)
-                result = env.reset()
-                obs, legal_actions = _extract_obs_legal(result)
+                # Stagger connection attempts so workers don't all hit the same
+                # uvicorn process simultaneously (each process allows 1 session).
+                await asyncio.sleep(random.uniform(0, 0.5))
 
-                for _ in range(self.horizon):
-                    obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
+                async with self._OpenSpielEnv(base_url=self.base_url) as env:
+                    result = await env.reset()
+                    obs, legal_actions = _extract_obs_legal(result)
+
+                    for _ in range(self.horizon):
+                        obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
+
+                        with torch.no_grad():
+                            logits, value = self.model(obs_t.unsqueeze(0))
+                            logits = logits.squeeze(0)
+                            value = value.squeeze(0).squeeze(-1)
+                            dist = self._masked_dist(logits, legal_actions)
+                            action = dist.sample()
+                            log_prob = dist.log_prob(action)
+
+                        next_result = await env.step(
+                            self._OpenSpielAction(action_id=int(action.item()), game_name=self.game_name)
+                        )
+
+                        reward = float(next_result.reward)
+                        done = bool(next_result.done)
+                        next_obs, next_legal = _extract_obs_legal(next_result)
+
+                        action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
+                        action_mask[legal_actions] = 1.0
+
+                        obs_buf.append(obs_t.cpu())
+                        actions_buf.append(action.cpu())
+                        logprob_buf.append(log_prob.cpu())
+                        rewards_buf.append(reward)
+                        values_buf.append(value.cpu())
+                        dones_buf.append(float(done))
+                        masks_buf.append(action_mask)
+
+                        running_return += reward
+                        if done:
+                            episode_returns.append(running_return)
+                            running_return = 0.0
+                            reset_result = await env.reset()
+                            obs, legal_actions = _extract_obs_legal(reset_result)
+                        else:
+                            obs, legal_actions = next_obs, next_legal
 
                     with torch.no_grad():
-                        logits, value = self.model(obs_t.unsqueeze(0))
-                        logits = logits.squeeze(0)
-                        value = value.squeeze(0).squeeze(-1)
-                        dist = self._masked_dist(logits, legal_actions)
-                        action = dist.sample()
-                        log_prob = dist.log_prob(action)
-
-                    next_result = env.step(
-                        self._OpenSpielAction(action_id=int(action.item()), game_name=self.game_name)
-                    )
-
-                    reward = float(next_result.reward)
-                    done = bool(next_result.done)
-                    next_obs, next_legal = _extract_obs_legal(next_result)
-
-                    action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
-                    action_mask[legal_actions] = 1.0
-
-                    obs_buf.append(obs_t.cpu())
-                    actions_buf.append(action.cpu())
-                    logprob_buf.append(log_prob.cpu())
-                    rewards_buf.append(reward)
-                    values_buf.append(value.cpu())
-                    dones_buf.append(float(done))
-                    masks_buf.append(action_mask)
-
-                    running_return += reward
-                    if done:
-                        episode_returns.append(running_return)
-                        running_return = 0.0
-                        reset_result = env.reset()
-                        obs, legal_actions = _extract_obs_legal(reset_result)
-                    else:
-                        obs, legal_actions = next_obs, next_legal
-
-                with torch.no_grad():
-                    next_value = (
-                        self.model(torch.tensor(obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))[1]
-                        .squeeze(0)
-                        .squeeze(-1)
-                        .cpu()
-                    )
+                        next_value = (
+                            self.model(torch.tensor(obs, dtype=torch.float32, device=DEVICE).unsqueeze(0))[1]
+                            .squeeze(0)
+                            .squeeze(-1)
+                            .cpu()
+                        )
 
                 values_plus_bootstrap = torch.cat([torch.stack(values_buf), next_value.view(1)], dim=0)
 
@@ -211,12 +229,11 @@ class RolloutWorker(Actor):
                 )
                 if not is_retryable or attempt == max_retries - 1:
                     raise
-                await asyncio.sleep(0.3 * (attempt + 1))
-            finally:
-                if env is not None:
-                    await self._close_env_client(env)
-                    # Give the server a short window to unregister the session.
-                    await asyncio.sleep(0.05)
+                # Exponential backoff with full jitter: [0, min(cap, base * 2^attempt)]
+                cap = 5.0
+                base = 0.25
+                wait = random.uniform(0, min(cap, base * (2 ** attempt)))
+                await asyncio.sleep(wait)
 
         raise RuntimeError("RolloutWorker.collect failed after retries")
 
@@ -366,7 +383,7 @@ def _spawn_mesh(num_gpu_workers: int, num_cpu_workers: int = 1):
     return this_host().spawn_procs(per_host={"procs": num_cpu_workers})
 
 
-def evaluate_policy_winrate(
+async def evaluate_policy_winrate(
     model_state: Dict[str, torch.Tensor],
     state_dim: int,
     hidden_dim: int,
@@ -387,9 +404,9 @@ def evaluate_policy_winrate(
     losses = 0
     draws = 0
 
-    with OpenSpielEnv(base_url=server_url) as env:
+    async with OpenSpielEnv(base_url=server_url) as env:
         for _ in range(num_games):
-            result = env.reset()
+            result = await env.reset()
             obs, legal_actions = _extract_obs_legal(result)
             done = bool(result.done)
             final_reward = float(result.reward) if result.reward is not None else 0.0
@@ -406,7 +423,7 @@ def evaluate_policy_winrate(
                 best_i = int(torch.argmax(legal_logits).item())
                 action_id = int(legal_actions[best_i])
 
-                step_result = env.step(OpenSpielAction(action_id=action_id, game_name=game_name))
+                step_result = await env.step(OpenSpielAction(action_id=action_id, game_name=game_name))
                 done = bool(step_result.done)
                 final_reward = float(step_result.reward) if step_result.reward is not None else final_reward
 
@@ -447,13 +464,15 @@ async def main() -> None:
     parser.add_argument("--minibatch-size", type=int, default=256)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--eval-games", type=int, default=20)
+    parser.add_argument("--metrics-file", type=str, default=None,
+        help="Path to write per-iteration JSONL metrics (for benchmarking)")
     args = parser.parse_args()
 
     _configure_openenv_imports()
     from envs.openspiel_env import OpenSpielEnv
 
-    with OpenSpielEnv(base_url=args.server_url) as env:
-        initial = env.reset()
+    async with OpenSpielEnv(base_url=args.server_url) as env:
+        initial = await env.reset()
         obs, legal_actions = _extract_obs_legal(initial)
 
     state_dim = len(obs)
@@ -496,16 +515,30 @@ async def main() -> None:
         f"horizon={args.horizon}, state_dim={state_dim}, action_dim={action_dim}"
     )
 
+    run_start = time.perf_counter()
     for iteration in range(args.iterations):
+        iter_start = time.perf_counter()
+
         model_state = await learner.get_model_state.call_one()
+
+        t0 = time.perf_counter()
         rollout_mesh = await workers.collect.call(model_state)
         rollouts = list(rollout_mesh.values())
+        rollout_time = time.perf_counter() - t0
 
+        t1 = time.perf_counter()
         metrics = await learner.update.call_one(
             rollouts,
             args.ppo_epochs,
             args.minibatch_size,
         )
+        update_time = time.perf_counter() - t1
+        iter_time = time.perf_counter() - iter_start
+
+        total_steps = args.num_workers * args.horizon
+        model_bytes = _tensor_bytes(model_state)
+        rollout_bytes = sum(_tensor_bytes(r) for r in rollouts)
+        total_mb = (model_bytes + rollout_bytes) / 1e6
 
         print(
             f"iter={iteration:03d} "
@@ -514,9 +547,23 @@ async def main() -> None:
             f"v_loss={metrics['value_loss']:.4f} "
             f"entropy={metrics['entropy']:.4f}"
         )
+        _write_metrics(args.metrics_file, {
+            "iteration": iteration,
+            "timestamp": time.time(),
+            "rollout_time_s": rollout_time,
+            "update_time_s": update_time,
+            "iter_time_s": iter_time,
+            "steps_collected": total_steps,
+            "steps_per_sec": total_steps / max(rollout_time, 1e-9),
+            "model_bytes": model_bytes,
+            "rollout_bytes": rollout_bytes,
+            "total_transfer_mb": total_mb,
+            "throughput_mb_s": total_mb / max(iter_time, 1e-9),
+            **metrics,
+        })
 
     trained_state = await learner.get_model_state.call_one()
-    eval_metrics = evaluate_policy_winrate(
+    eval_metrics = await evaluate_policy_winrate(
         model_state=trained_state,
         state_dim=state_dim,
         hidden_dim=args.hidden_dim,
@@ -532,6 +579,11 @@ async def main() -> None:
         f"draws={int(eval_metrics['draws'])}, "
         f"win_rate={eval_metrics['win_rate']:.2%}"
     )
+    _write_metrics(args.metrics_file, {
+        "final": True,
+        "total_time_s": time.perf_counter() - run_start,
+        **eval_metrics,
+    })
 
 
 if __name__ == "__main__":
