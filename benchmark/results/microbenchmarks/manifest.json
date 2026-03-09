@@ -1,0 +1,58 @@
+[
+  {
+    "benchmark": "dispatch",
+    "framework": "ray",
+    "status": "OK",
+    "elapsed_s": 2.814115524291992,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/dispatch_ray.json"
+  },
+  {
+    "benchmark": "dispatch",
+    "framework": "monarch",
+    "status": "OK",
+    "elapsed_s": 5.189369440078735,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/dispatch_monarch.json"
+  },
+  {
+    "benchmark": "broadcast",
+    "framework": "ray",
+    "status": "OK",
+    "elapsed_s": 10.932574987411499,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/broadcast_ray.json"
+  },
+  {
+    "benchmark": "broadcast",
+    "framework": "monarch",
+    "status": "OK",
+    "elapsed_s": 27.444452047348022,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/broadcast_monarch.json"
+  },
+  {
+    "benchmark": "straggler",
+    "framework": "ray",
+    "status": "OK",
+    "elapsed_s": 58.01117014884949,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/straggler_ray.json"
+  },
+  {
+    "benchmark": "straggler",
+    "framework": "monarch",
+    "status": "OK",
+    "elapsed_s": 59.7978401184082,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/straggler_monarch.json"
+  },
+  {
+    "benchmark": "iteration_loop",
+    "framework": "ray",
+    "status": "OK",
+    "elapsed_s": 13.416015863418579,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/iteration_loop_ray.json"
+  },
+  {
+    "benchmark": "iteration_loop",
+    "framework": "monarch",
+    "status": "OK",
+    "elapsed_s": 23.213457822799683,
+    "output": "/home/holden/cs214-rl-benchmark/benchmark/results/microbenchmarks/iteration_loop_monarch.json"
+  }
+]

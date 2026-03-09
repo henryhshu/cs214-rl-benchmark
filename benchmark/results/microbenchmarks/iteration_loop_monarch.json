@@ -1,0 +1,54 @@
+[
+  {
+    "framework": "monarch",
+    "workers": 1,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 22.525607060233597,
+    "cycle_median_ms": 22.488982998766005,
+    "cycle_std_ms": 0.3572277108769899,
+    "overhead_mean_ms": 2.525492399436189,
+    "overhead_median_ms": 2.4888860061764717,
+    "overhead_std_ms": 0.357220512369217,
+    "overhead_pct": 11.211650778969057
+  },
+  {
+    "framework": "monarch",
+    "workers": 2,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 23.954849848814774,
+    "cycle_median_ms": 22.941633498703595,
+    "cycle_std_ms": 2.319604574054383,
+    "overhead_mean_ms": 3.954729038232472,
+    "overhead_median_ms": 2.941512007964775,
+    "overhead_std_ms": 2.319605292881619,
+    "overhead_pct": 16.509095499206985
+  },
+  {
+    "framework": "monarch",
+    "workers": 4,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 39.49307221977506,
+    "cycle_median_ms": 38.800206493760925,
+    "cycle_std_ms": 2.9199846344910245,
+    "overhead_mean_ms": 19.489588229189394,
+    "overhead_median_ms": 18.800092992023565,
+    "overhead_std_ms": 2.9206420305504213,
+    "overhead_pct": 49.34938492688479
+  },
+  {
+    "framework": "monarch",
+    "workers": 8,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 67.76500237028813,
+    "cycle_median_ms": 69.10932150640292,
+    "cycle_std_ms": 2.6176432006330046,
+    "overhead_mean_ms": 44.07295259079547,
+    "overhead_median_ms": 43.76096951455111,
+    "overhead_std_ms": 4.948799958740694,
+    "overhead_pct": 65.03792673092188
+  }
+]

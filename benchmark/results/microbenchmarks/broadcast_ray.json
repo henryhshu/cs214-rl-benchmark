@@ -1,0 +1,162 @@
+[
+  {
+    "framework": "ray",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 1,
+    "put_mean_ms": 0.4609394009457901,
+    "total_mean_ms": 1.7909193913510535,
+    "total_median_ms": 1.7680415039649233,
+    "total_std_ms": 0.13314322855673436
+  },
+  {
+    "framework": "ray",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 2,
+    "put_mean_ms": 0.47173244995065033,
+    "total_mean_ms": 2.0756610203534365,
+    "total_median_ms": 2.0602865042747,
+    "total_std_ms": 0.17564321178020328
+  },
+  {
+    "framework": "ray",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 4,
+    "put_mean_ms": 0.4656301604700275,
+    "total_mean_ms": 2.5094457202067133,
+    "total_median_ms": 2.476860499882605,
+    "total_std_ms": 0.26647170123163066
+  },
+  {
+    "framework": "ray",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 8,
+    "put_mean_ms": 0.48028046076069586,
+    "total_mean_ms": 3.433250790258171,
+    "total_median_ms": 3.4192730017821305,
+    "total_std_ms": 0.18878645689650386
+  },
+  {
+    "framework": "ray",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 1,
+    "put_mean_ms": 0.5299862801621202,
+    "total_mean_ms": 1.9330304602044635,
+    "total_median_ms": 1.9342570085427724,
+    "total_std_ms": 0.16286109832893803
+  },
+  {
+    "framework": "ray",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 2,
+    "put_mean_ms": 0.48065383001812734,
+    "total_mean_ms": 2.0734249211091083,
+    "total_median_ms": 2.046748501015827,
+    "total_std_ms": 0.16122386678265896
+  },
+  {
+    "framework": "ray",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 4,
+    "put_mean_ms": 0.517810529563576,
+    "total_mean_ms": 2.590056128537981,
+    "total_median_ms": 2.5087155008804984,
+    "total_std_ms": 0.36648683031564694
+  },
+  {
+    "framework": "ray",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 8,
+    "put_mean_ms": 0.532252780685667,
+    "total_mean_ms": 3.5362986914697103,
+    "total_median_ms": 3.5037525012739934,
+    "total_std_ms": 0.2142821023425412
+  },
+  {
+    "framework": "ray",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 1,
+    "put_mean_ms": 0.8850985298340674,
+    "total_mean_ms": 2.4596700696565676,
+    "total_median_ms": 2.3984830113477074,
+    "total_std_ms": 0.4481730322000111
+  },
+  {
+    "framework": "ray",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 2,
+    "put_mean_ms": 0.6593088406953029,
+    "total_mean_ms": 2.471139660628978,
+    "total_median_ms": 2.3141945057432167,
+    "total_std_ms": 0.46766430875090725
+  },
+  {
+    "framework": "ray",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 4,
+    "put_mean_ms": 0.6022420016233809,
+    "total_mean_ms": 2.9178550612414256,
+    "total_median_ms": 2.8689364989986643,
+    "total_std_ms": 0.25692975086701186
+  },
+  {
+    "framework": "ray",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 8,
+    "put_mean_ms": 0.6303154092165641,
+    "total_mean_ms": 4.0182241797447205,
+    "total_median_ms": 3.9988345015444793,
+    "total_std_ms": 0.2812250030506136
+  },
+  {
+    "framework": "ray",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 1,
+    "put_mean_ms": 4.39114466033061,
+    "total_mean_ms": 7.814727589866378,
+    "total_median_ms": 8.130201502353884,
+    "total_std_ms": 1.4556325199348572
+  },
+  {
+    "framework": "ray",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 2,
+    "put_mean_ms": 3.0873903098108713,
+    "total_mean_ms": 6.268779720558086,
+    "total_median_ms": 6.296113511780277,
+    "total_std_ms": 0.6115474980416115
+  },
+  {
+    "framework": "ray",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 4,
+    "put_mean_ms": 3.2432924695604015,
+    "total_mean_ms": 8.285629169549793,
+    "total_median_ms": 8.23050150211202,
+    "total_std_ms": 0.5488237018533642
+  },
+  {
+    "framework": "ray",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 8,
+    "put_mean_ms": 3.7299187602184247,
+    "total_mean_ms": 9.858820240187924,
+    "total_median_ms": 9.77517800492933,
+    "total_std_ms": 0.5000354348239918
+  }
+]

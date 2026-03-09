@@ -12,6 +12,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import os
 import statistics
 import sys
 import time
@@ -21,8 +22,16 @@ import torch
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
-# Ensure imports work
-sys.path.insert(0, str(ROOT / "benchmark"))
+# Ensure imports work for both driver and spawned workers
+_extra_paths = [
+    str(ROOT / "benchmark"),
+    str(ROOT / "ray_blackjack"),
+    str(ROOT / "monarch_blackjack"),
+]
+for p in _extra_paths:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+os.environ["PYTHONPATH"] = ":".join(_extra_paths + [os.environ.get("PYTHONPATH", "")])
 
 HORIZON = 256
 HIDDEN_DIM = 64
@@ -41,12 +50,18 @@ def _probe_env():
 
 def run_ray(worker_counts: list[int], num_rollouts: int) -> list[dict]:
     import ray
-    sys.path.insert(0, str(ROOT / "ray_blackjack"))
     from ppo_ray import RolloutWorker, ActorCritic
 
     state_dim, action_dim = _probe_env()
 
-    ray.init(ignore_reinit_error=True)
+    ray.init(
+        ignore_reinit_error=True,
+        runtime_env={
+            "env_vars": {
+                "PYTHONPATH": ":".join(_extra_paths),
+            },
+        },
+    )
     results = []
     try:
         model = ActorCritic(state_dim, HIDDEN_DIM, action_dim)
@@ -112,7 +127,6 @@ def run_ray(worker_counts: list[int], num_rollouts: int) -> list[dict]:
 
 def run_monarch(worker_counts: list[int], num_rollouts: int) -> list[dict]:
     from monarch.actor import this_host
-    sys.path.insert(0, str(ROOT / "monarch_blackjack"))
     from ppo_monarch import RolloutWorker, ActorCritic
 
     state_dim, action_dim = _probe_env()

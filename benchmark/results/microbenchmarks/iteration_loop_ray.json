@@ -1,0 +1,54 @@
+[
+  {
+    "framework": "ray",
+    "workers": 1,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 23.173304711526725,
+    "cycle_median_ms": 23.06180150480941,
+    "cycle_std_ms": 0.4306363675081321,
+    "overhead_mean_ms": 3.1731780503469054,
+    "overhead_median_ms": 3.0617180018452927,
+    "overhead_std_ms": 0.43060639881482643,
+    "overhead_pct": 13.69324785501363
+  },
+  {
+    "framework": "ray",
+    "workers": 2,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 23.178433299908647,
+    "cycle_median_ms": 23.068800001055934,
+    "cycle_std_ms": 0.7886122967635236,
+    "overhead_mean_ms": 3.178142150572967,
+    "overhead_median_ms": 3.068690508371219,
+    "overhead_std_ms": 0.788553803488086,
+    "overhead_pct": 13.711634904096357
+  },
+  {
+    "framework": "ray",
+    "workers": 4,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 23.807295539590996,
+    "cycle_median_ms": 23.850280995247886,
+    "cycle_std_ms": 0.3513488588239586,
+    "overhead_mean_ms": 3.807128798653139,
+    "overhead_median_ms": 3.850046494335402,
+    "overhead_std_ms": 0.35134349430420436,
+    "overhead_pct": 15.991437550401175
+  },
+  {
+    "framework": "ray",
+    "workers": 8,
+    "num_cycles": 100,
+    "work_ms": 20,
+    "cycle_mean_ms": 24.971672019455582,
+    "cycle_median_ms": 24.87461399869062,
+    "cycle_std_ms": 0.41257596260378726,
+    "overhead_mean_ms": 4.971064948913408,
+    "overhead_median_ms": 4.874407495663036,
+    "overhead_std_ms": 0.4127356141578099,
+    "overhead_pct": 19.906816592178615
+  }
+]

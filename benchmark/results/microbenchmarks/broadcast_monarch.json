@@ -1,0 +1,146 @@
+[
+  {
+    "framework": "monarch",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 1,
+    "total_mean_ms": 0.9501487606030423,
+    "total_median_ms": 0.918226498470176,
+    "total_std_ms": 0.13632217011398856
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 2,
+    "total_mean_ms": 1.3323473808122799,
+    "total_median_ms": 1.2844255033996888,
+    "total_std_ms": 0.12359767566889264
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 4,
+    "total_mean_ms": 1.6994482898735441,
+    "total_median_ms": 1.6783539904281497,
+    "total_std_ms": 0.12251269824417807
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "50KB",
+    "payload_bytes": 50000,
+    "workers": 8,
+    "total_mean_ms": 2.1324852797260974,
+    "total_median_ms": 2.108360502461437,
+    "total_std_ms": 0.14424372722876372
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 1,
+    "total_mean_ms": 1.1366100097075105,
+    "total_median_ms": 1.1340650016791187,
+    "total_std_ms": 0.12977968136560195
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 2,
+    "total_mean_ms": 1.5601942909415811,
+    "total_median_ms": 1.5288194990716875,
+    "total_std_ms": 0.2019368922616511
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 4,
+    "total_mean_ms": 1.9298700289800763,
+    "total_median_ms": 1.914029497129377,
+    "total_std_ms": 0.16108011307808134
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "200KB",
+    "payload_bytes": 200000,
+    "workers": 8,
+    "total_mean_ms": 2.5239902193425223,
+    "total_median_ms": 2.5112549992627464,
+    "total_std_ms": 0.19108285892930787
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 1,
+    "total_mean_ms": 1.5792068389419,
+    "total_median_ms": 1.5780655012349598,
+    "total_std_ms": 0.26068121324109705
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 2,
+    "total_mean_ms": 2.309562469890807,
+    "total_median_ms": 2.3770984989823774,
+    "total_std_ms": 0.4930958152869519
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 4,
+    "total_mean_ms": 3.3745161510887556,
+    "total_median_ms": 3.3897675020853058,
+    "total_std_ms": 0.4495530310137544
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "800KB",
+    "payload_bytes": 800000,
+    "workers": 8,
+    "total_mean_ms": 4.008869410317857,
+    "total_median_ms": 3.990574499766808,
+    "total_std_ms": 0.38905622184560107
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 1,
+    "total_mean_ms": 3.0639317295572255,
+    "total_median_ms": 3.014624504430685,
+    "total_std_ms": 0.9288246491826518
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 2,
+    "total_mean_ms": 5.161110739718424,
+    "total_median_ms": 5.419755500042811,
+    "total_std_ms": 1.341687844250071
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 4,
+    "total_mean_ms": 6.826817419496365,
+    "total_median_ms": 7.062057506118435,
+    "total_std_ms": 1.6941014603915965
+  },
+  {
+    "framework": "monarch",
+    "payload_name": "3.2MB",
+    "payload_bytes": 3200000,
+    "workers": 8,
+    "total_mean_ms": 9.231119240430417,
+    "total_median_ms": 9.411537510459311,
+    "total_std_ms": 1.6148133169691645
+  }
+]
