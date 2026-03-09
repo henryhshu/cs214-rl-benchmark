@@ -1,92 +1,29 @@
 import argparse
-import asyncio
-import os
 import sys
 import time
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, List
 
 import ray
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical
+from benchmark import (
+	ActorCritic,
+	close_env_client_sync,
+	compute_gae,
+	configure_openenv_imports,
+	configure_torch_allocator,
+	evaluate_policy_winrate,
+	extract_obs_legal,
+	is_retryable_openenv_error,
+	masked_dist,
+	resolve_device,
+)
 
 
-class ActorCritic(nn.Module):
-	def __init__(self, state_dim: int, hidden_dim: int, action_dim: int):
-		super().__init__()
-		self.shared = nn.Sequential(
-			nn.Linear(state_dim, hidden_dim),
-			nn.ReLU(),
-		)
-		self.policy = nn.Sequential(nn.Linear(hidden_dim, action_dim))
-		self.value = nn.Sequential(nn.Linear(hidden_dim, 1))
-
-	def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-		shared_out = self.shared(x)
-		policy_logits = self.policy(shared_out)
-		value = self.value(shared_out)
-		return policy_logits, value
-
-
-def compute_gae(
-	rewards: torch.Tensor,
-	values: torch.Tensor,
-	dones: torch.Tensor,
-	gamma: float = 0.99,
-	lam: float = 0.95,
-) -> tuple[torch.Tensor, torch.Tensor]:
-	advantages = torch.zeros_like(rewards)
-	last_advantage = 0.0
-	for t in reversed(range(len(rewards))):
-		mask = 1.0 - dones[t]
-		delta = rewards[t] + gamma * values[t + 1] * mask - values[t]
-		last_advantage = delta + gamma * lam * mask * last_advantage
-		advantages[t] = last_advantage
-	returns = advantages + values[:-1]
-	return advantages, returns
-
-
-os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
-DEVICE_NAME = os.environ.get(
-	"RAY_DEVICE",
-	"cuda" if torch.cuda.is_available() else "cpu",
-).lower()
-if DEVICE_NAME == "cuda" and not torch.cuda.is_available():
-	print("RAY_DEVICE=cuda requested but CUDA is unavailable; falling back to CPU")
-	DEVICE_NAME = "cpu"
-DEVICE = torch.device(DEVICE_NAME)
-
-
-def _configure_openenv_imports() -> None:
-	project_root = Path(__file__).resolve().parent.parent
-	openenv_path = project_root / "external" / "OpenEnv"
-	if not openenv_path.exists():
-		raise FileNotFoundError(f"OpenEnv directory not found at {openenv_path}")
-
-	openenv_path_str = str(openenv_path)
-	if openenv_path_str not in sys.path:
-		sys.path.insert(0, openenv_path_str)
-
-
-def _extract_obs_legal(result: Any) -> tuple[List[float], List[int]]:
-	obs_obj = result.observation
-	return list(obs_obj.info_state), list(obs_obj.legal_actions)
-
-
-def _close_env_client_sync(env: Any) -> None:
-	close_fn = getattr(env, "close", None) or getattr(env, "disconnect", None)
-	if close_fn is None:
-		return
-
-	try:
-		maybe_result = close_fn()
-		if asyncio.iscoroutine(maybe_result):
-			asyncio.run(maybe_result)
-	except Exception:
-		pass
+configure_torch_allocator()
+DEVICE = resolve_device("RAY_DEVICE")
 
 
 @ray.remote
@@ -108,17 +45,11 @@ class RolloutWorker:
 		self.model = ActorCritic(state_dim, hidden_dim, action_dim).to(DEVICE)
 		self.model.eval()
 
-		_configure_openenv_imports()
+		configure_openenv_imports()
 		from envs.openspiel_env import OpenSpielAction, OpenSpielEnv
 
 		self._OpenSpielAction = OpenSpielAction
 		self._OpenSpielEnv = OpenSpielEnv
-
-	def _masked_dist(self, logits: torch.Tensor, legal_actions: List[int]) -> Categorical:
-		mask = torch.zeros(self.action_dim, dtype=torch.bool, device=logits.device)
-		mask[legal_actions] = True
-		masked_logits = logits.masked_fill(~mask, -1e9)
-		return Categorical(logits=masked_logits)
 
 	def collect(self, model_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
 		self.model.load_state_dict(model_state)
@@ -139,7 +70,7 @@ class RolloutWorker:
 
 				env = self._OpenSpielEnv(base_url=self.base_url)
 				result = env.reset()
-				obs, legal_actions = _extract_obs_legal(result)
+				obs, legal_actions = extract_obs_legal(result)
 
 				for _ in range(self.horizon):
 					obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
@@ -148,7 +79,7 @@ class RolloutWorker:
 						logits, value = self.model(obs_t.unsqueeze(0))
 						logits = logits.squeeze(0)
 						value = value.squeeze(0).squeeze(-1)
-						dist = self._masked_dist(logits, legal_actions)
+						dist = masked_dist(logits, legal_actions, self.action_dim)
 						action = dist.sample()
 						log_prob = dist.log_prob(action)
 
@@ -158,7 +89,7 @@ class RolloutWorker:
 
 					reward = float(next_result.reward)
 					done = bool(next_result.done)
-					next_obs, next_legal = _extract_obs_legal(next_result)
+					next_obs, next_legal = extract_obs_legal(next_result)
 
 					action_mask = torch.zeros(self.action_dim, dtype=torch.float32)
 					action_mask[legal_actions] = 1.0
@@ -176,7 +107,7 @@ class RolloutWorker:
 						episode_returns.append(running_return)
 						running_return = 0.0
 						reset_result = env.reset()
-						obs, legal_actions = _extract_obs_legal(reset_result)
+						obs, legal_actions = extract_obs_legal(reset_result)
 					else:
 						obs, legal_actions = next_obs, next_legal
 
@@ -204,18 +135,12 @@ class RolloutWorker:
 					).mean(),
 				}
 			except Exception as exc:
-				exc_text = f"{type(exc).__name__}: {exc}"
-				is_retryable = (
-					"ConnectionClosed" in exc_text
-					or "CAPACITY_REACHED" in exc_text
-					or "Server at capacity" in exc_text
-				)
-				if not is_retryable or attempt == max_retries - 1:
+				if not is_retryable_openenv_error(exc) or attempt == max_retries - 1:
 					raise
 				time.sleep(0.3 * (attempt + 1))
 			finally:
 				if env is not None:
-					_close_env_client_sync(env)
+					close_env_client_sync(env)
 					time.sleep(0.05)
 
 		raise RuntimeError("RolloutWorker.collect failed after retries")
@@ -359,72 +284,6 @@ class PPOLearner:
 		}
 
 
-def evaluate_policy_winrate(
-	model_state: Dict[str, torch.Tensor],
-	state_dim: int,
-	hidden_dim: int,
-	action_dim: int,
-	server_url: str,
-	game_name: str,
-	num_games: int = 20,
-) -> Dict[str, float]:
-	_configure_openenv_imports()
-	from envs.openspiel_env import OpenSpielAction, OpenSpielEnv
-
-	eval_model = ActorCritic(state_dim, hidden_dim, action_dim).to(DEVICE)
-	eval_model.load_state_dict(model_state)
-	eval_model.eval()
-
-	wins = 0
-	losses = 0
-	draws = 0
-
-	env = None
-	try:
-		env = OpenSpielEnv(base_url=server_url)
-		for _ in range(num_games):
-			result = env.reset()
-			obs, legal_actions = _extract_obs_legal(result)
-			done = bool(result.done)
-			final_reward = float(result.reward) if result.reward is not None else 0.0
-
-			while not done:
-				obs_t = torch.tensor(obs, dtype=torch.float32, device=DEVICE)
-				with torch.no_grad():
-					logits, _ = eval_model(obs_t.unsqueeze(0))
-					logits = logits.squeeze(0)
-
-				legal_idx = torch.tensor(legal_actions, dtype=torch.long, device=DEVICE)
-				legal_logits = logits[legal_idx]
-				best_i = int(torch.argmax(legal_logits).item())
-				action_id = int(legal_actions[best_i])
-
-				step_result = env.step(OpenSpielAction(action_id=action_id, game_name=game_name))
-				done = bool(step_result.done)
-				final_reward = float(step_result.reward) if step_result.reward is not None else final_reward
-
-				if not done:
-					obs, legal_actions = _extract_obs_legal(step_result)
-
-			if final_reward > 0:
-				wins += 1
-			elif final_reward < 0:
-				losses += 1
-			else:
-				draws += 1
-	finally:
-		if env is not None:
-			_close_env_client_sync(env)
-
-	games_played = max(1, num_games)
-	return {
-		"wins": float(wins),
-		"losses": float(losses),
-		"draws": float(draws),
-		"win_rate": wins / games_played,
-	}
-
-
 def _actor_options(is_learner: bool) -> Dict[str, float]:
 	if DEVICE.type == "cuda":
 		return {"num_gpus": 1.0}
@@ -453,7 +312,7 @@ def main() -> None:
 	parser.add_argument("--ray-address", type=str, default=None)
 	args = parser.parse_args()
 
-	_configure_openenv_imports()
+	configure_openenv_imports()
 	from envs.openspiel_env import OpenSpielEnv
 
 	init_kwargs = {"ignore_reinit_error": True}
@@ -466,10 +325,10 @@ def main() -> None:
 		try:
 			env = OpenSpielEnv(base_url=args.server_url)
 			initial = env.reset()
-			obs, legal_actions = _extract_obs_legal(initial)
+			obs, legal_actions = extract_obs_legal(initial)
 		finally:
 			if env is not None:
-				_close_env_client_sync(env)
+				close_env_client_sync(env)
 
 		state_dim = len(obs)
 		action_dim = max(legal_actions) + 1
@@ -535,6 +394,7 @@ def main() -> None:
 			action_dim=action_dim,
 			server_url=args.server_url,
 			game_name=args.game_name,
+			device=DEVICE,
 			num_games=max(1, args.eval_games),
 		)
 		print(

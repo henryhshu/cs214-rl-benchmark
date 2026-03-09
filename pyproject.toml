@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blackjack-benchmark"
+version = "0.0.1"
+description = "RL blackjack experiments"
+requires-python = ">=3.9"
+
+[tool.setuptools.packages.find]
+where = ["src"]
