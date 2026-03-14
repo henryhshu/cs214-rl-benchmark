@@ -1,0 +1,12 @@
+{
+  "framework": "ray",
+  "workers": 2,
+  "horizon": 128,
+  "hidden_dim": 1024,
+  "env_mode": "local",
+  "device": "cpu",
+  "iterations": 30,
+  "eval_games": 50,
+  "server_port": 8000,
+  "run_name": "cpu-large"
+}
