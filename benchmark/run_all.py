@@ -30,8 +30,8 @@ RESULTS_DIR = BENCHMARK_DIR / "results"
 
 # Env server lives in external/OpenEnv; envs/ must be importable from there.
 OPENENV_ROOT = ROOT / "external" / "OpenEnv"
-SERVER_PORT = 8000
-SERVER_WORKERS = 8  # Keep high so it never bottlenecks our experiments
+SERVER_PORT = 8002
+SERVER_WORKERS = 8  # Must be 1; pyspiel deadlocks under uvicorn multiprocessing fork
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,7 @@ def _wait_for_server(url: str, timeout: int = 20) -> None:
             return
         except Exception:
             time.sleep(0.5)
-    print(f"  WARNING: server at {url} did not become ready within {timeout}s", flush=True)
+    sys.exit(f"ERROR: env server at {url} did not become ready within {timeout}s")
 
 
 def start_sysmon(output_file: Path) -> subprocess.Popen:
@@ -147,8 +147,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run Ray vs Monarch benchmark matrix")
     parser.add_argument("--frameworks", nargs="+", default=["ray", "monarch"],
                         choices=["ray", "monarch"])
-    parser.add_argument("--workers", nargs="+", type=int, default=[1, 2, 4, 8])
-    parser.add_argument("--horizons", nargs="+", type=int, default=[128, 256, 512])
+    parser.add_argument("--workers", nargs="+", type=int, default=[1, 2, 4, 8, 16, 32, 64])
+    parser.add_argument("--horizons", nargs="+", type=int, default=[128])
     parser.add_argument("--hidden-dims", nargs="+", type=int, default=[64],
                         help="Model hidden dim(s). Use 64 for CPU-bound, 1024+ for GPU-bound.")
     parser.add_argument("--env-modes", nargs="+", default=["websocket"],
@@ -190,9 +190,9 @@ def main() -> None:
 
     need_server = any(em == "websocket" for _, _, _, _, em in experiments)
     server = None
-    if need_server:
-        print(f"Starting env server (port={SERVER_PORT}, workers={SERVER_WORKERS})...", flush=True)
-        server = start_env_server()
+    # if need_server:
+    #     print(f"Starting env server (port={SERVER_PORT}, workers={SERVER_WORKERS})...", flush=True)
+    #     server = start_env_server()
 
     results_summary = []
     try:

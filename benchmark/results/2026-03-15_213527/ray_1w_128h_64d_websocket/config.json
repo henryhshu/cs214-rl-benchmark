@@ -1,0 +1,12 @@
+{
+  "framework": "ray",
+  "workers": 1,
+  "horizon": 128,
+  "hidden_dim": 64,
+  "env_mode": "websocket",
+  "device": "auto",
+  "iterations": 30,
+  "eval_games": 50,
+  "server_port": 8002,
+  "run_name": "2026-03-15_213527"
+}
